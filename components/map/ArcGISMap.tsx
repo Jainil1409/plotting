@@ -83,6 +83,7 @@ export default function ArcGISThreeMap() {
         camera: new THREE.PerspectiveCamera(),
         model: null as THREE.Object3D | null,
         placement: null as THREE.Group | null,
+        cameraFill: null as THREE.DirectionalLight | null,
 
         setup(context: any) {
           this.renderer = new THREE.WebGLRenderer({
@@ -90,18 +91,21 @@ export default function ArcGISThreeMap() {
             premultipliedAlpha: false,
           });
           this.renderer.autoClear = false;
-          // Use ACESFilmicToneMapping so PBR material colors match what the
-          // GLB author intended — same pipeline ObjectSymbol3D uses internally.
           this.renderer.outputColorSpace = THREE.SRGBColorSpace;
           this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-          this.renderer.toneMappingExposure = 1.0;
+          this.renderer.toneMappingExposure = 1.15;
 
-          // Match the lighting ObjectSymbol3D uses: a moderate ambient +
-          // one directional. Keep intensity low so PBR albedo isn't blown out.
-          this.scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-          const sun = new THREE.DirectionalLight(0xffffff, 1.2);
-          sun.position.set(1, 2, 3);
+          // Use a daylight setup that matches the brighter ObjectSymbol3D look.
+          this.scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+          const hemi = new THREE.HemisphereLight(0xfafcff, 0xb9b9b9, 0.6);
+          this.scene.add(hemi);
+
+          const sun = new THREE.DirectionalLight(0xfff7eb, 1.45);
+          sun.position.set(1.25, 2.75, 3.25);
           this.scene.add(sun);
+
+          this.cameraFill = new THREE.DirectionalLight(0xffffff, 0.8);
+          this.scene.add(this.cameraFill);
 
           const loader = new GLTFLoader();
           loader.load(
@@ -232,6 +236,14 @@ export default function ArcGISThreeMap() {
           this.camera.matrixWorldInverse.fromArray(cam.viewMatrix);
           this.camera.matrixWorld.copy(this.camera.matrixWorldInverse).invert();
           this.camera.matrixAutoUpdate = false;
+
+          if (this.cameraFill) {
+            const cameraWorldPosition = new THREE.Vector3().setFromMatrixPosition(this.camera.matrixWorld);
+            const cameraForward = new THREE.Vector3(0, 0, -1).applyQuaternion(this.camera.quaternion).normalize();
+            this.cameraFill.position.copy(cameraWorldPosition).addScaledVector(cameraForward, 5);
+            this.cameraFill.target.position.copy(cameraWorldPosition);
+            this.cameraFill.target.updateMatrixWorld();
+          }
 
           this.renderer.render(this.scene, this.camera);
 
