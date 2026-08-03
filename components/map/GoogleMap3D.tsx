@@ -60,9 +60,12 @@ export default function GoogleMap3D() {
         scene = new THREE.Scene();
         camera = new THREE.PerspectiveCamera();
 
-        scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-        const sun = new THREE.DirectionalLight(0xffffff, 1.2);
-        sun.position.set(0.5, 1, 2);
+        scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+        const hemi = new THREE.HemisphereLight(0xfafcff, 0xb9b9b9, 0.6);
+        scene.add(hemi);
+
+        const sun = new THREE.DirectionalLight(0xfff7eb, 1.45);
+        sun.position.set(1.25, 2.75, 3.25);
         scene.add(sun);
 
         const loader = new GLTFLoader();
@@ -88,11 +91,19 @@ export default function GoogleMap3D() {
             const size = new THREE.Vector3();
             box.getSize(size);
             const maxDim = Math.max(size.x, size.y, size.z);
-            const scale = maxDim > 0 ? 100 / maxDim : 1;
+            const scale = maxDim > 0 ? 90 / maxDim : 1;
             model.scale.setScalar(scale);
 
             // Rotate GLB Y-up → Z-up
             model.rotation.x = Math.PI / 2;
+
+            // Recenter after rotation so the full model stays inside the view.
+            model.updateMatrixWorld(true);
+            const rotatedBox = new THREE.Box3().setFromObject(model);
+            const rotatedCenter = new THREE.Vector3();
+            rotatedBox.getCenter(rotatedCenter);
+            model.position.set(-rotatedCenter.x, -rotatedCenter.y, -rotatedBox.min.z);
+
             scene!.add(model);
             overlay.requestRedraw();
           },
@@ -110,7 +121,7 @@ export default function GoogleMap3D() {
         renderer.autoClear = false;
         renderer.outputColorSpace = THREE.SRGBColorSpace;
         renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        renderer.toneMappingExposure = 1.0;
+        renderer.toneMappingExposure = 1.15;
       };
 
       overlay.onDraw = ({ gl, transformer }: google.maps.WebGLDrawOptions) => {
@@ -124,9 +135,6 @@ export default function GoogleMap3D() {
 
         camera.projectionMatrix.fromArray(matrix);
         camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
-
-        // Position the model at the target coordinate origin
-        model.position.set(0, 0, 0);
 
         gl.disable(gl.SCISSOR_TEST);
         renderer.resetState();
