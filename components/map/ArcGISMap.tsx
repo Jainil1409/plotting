@@ -123,8 +123,14 @@ export default function ArcGISThreeMap() {
                     mat.vertexColors = false;
                   }
                   mat.side = THREE.DoubleSide;
-                  if (mat.transparent && mat.opacity >= 1 && !mat.alphaMap) {
+                  const hasAlphaCutout = !!mat.alphaMap || !!mat.alphaTest || !!mat.transparent || (mat.map && mat.map.name?.toLowerCase?.().includes("leaf"));
+                  if (hasAlphaCutout) {
                     mat.transparent = false;
+                    mat.depthWrite = true;
+                    mat.alphaTest = Math.max(mat.alphaTest ?? 0, 0.45);
+                  } else if (mat.transparent && mat.opacity >= 1) {
+                    mat.transparent = false;
+                    mat.depthWrite = true;
                   }
                   mat.needsUpdate = true;
                 });
