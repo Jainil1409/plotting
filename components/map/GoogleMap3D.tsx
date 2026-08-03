@@ -9,6 +9,13 @@ const TARGET_LNG = 72.5714;
 
 export default function GoogleMap3D() {
   const mapDiv = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<any>(null);
+  const dragStateRef = useRef<{ pointerId: number | null; startX: number; startHeading: number; dragging: boolean }>({
+    pointerId: null,
+    startX: 0,
+    startHeading: 0,
+    dragging: false,
+  });
 
   useEffect(() => {
     let canceled = false;
@@ -46,8 +53,12 @@ export default function GoogleMap3D() {
         heading: 0,
         mapId: "8e0a97af9386fef",
         disableDefaultUI: true,
+        rotateControl: true,
+        gestureHandling: "greedy",
+        keyboardShortcuts: true,
         mapTypeId: "roadmap",
       });
+      mapRef.current = map;
 
       const overlay = new g.maps.WebGLOverlayView();
 
@@ -147,8 +158,97 @@ export default function GoogleMap3D() {
 
     return () => {
       canceled = true;
+      mapRef.current = null;
     };
   }, []);
 
-  return <div ref={mapDiv} style={{ width: "100%", height: "100%" }} />;
+  const rotateMap = (deltaDegrees: number) => {
+    const map = mapRef.current;
+    if (!map) return;
+    const currentHeading = map.getHeading?.() ?? 0;
+    const nextHeading = ((currentHeading + deltaDegrees) % 360 + 360) % 360;
+    map.setHeading(nextHeading);
+  };
+
+  const tiltMap = (deltaDegrees: number) => {
+    const map = mapRef.current;
+    if (!map) return;
+    const currentTilt = map.getTilt?.() ?? 0;
+    const nextTilt = Math.min(67.5, Math.max(0, currentTilt + deltaDegrees));
+    map.setTilt(nextTilt);
+  };
+
+  const startDragRotate = (event: any) => {
+    const map = mapRef.current;
+    if (!map) return;
+    dragStateRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startHeading: map.getHeading?.() ?? 0,
+      dragging: true,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const moveDragRotate = (event: any) => {
+    const state = dragStateRef.current;
+    const map = mapRef.current;
+    if (!map || !state.dragging || state.pointerId !== event.pointerId) return;
+    const deltaX = event.clientX - state.startX;
+    const nextHeading = ((state.startHeading + deltaX * 0.5) % 360 + 360) % 360;
+    map.setHeading(nextHeading);
+  };
+
+  const endDragRotate = (event: any) => {
+    const state = dragStateRef.current;
+    if (state.pointerId !== event.pointerId) return;
+    dragStateRef.current = { pointerId: null, startX: 0, startHeading: 0, dragging: false };
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // ignore
+    }
+  };
+
+  return (
+    <div style={{ position: "relative", width: "100%", height: "100%" }}>
+      <div style={{ position: "absolute", top: 16, right: 16, zIndex: 2, display: "flex", gap: 8, padding: 8, borderRadius: 16, background: "rgba(15, 23, 42, 0.72)", backdropFilter: "blur(10px)", boxShadow: "0 12px 30px rgba(0, 0, 0, 0.25)" }}>
+        <button type="button" onClick={() => rotateMap(-36)} style={{ border: "none", width: 40, height: 40, borderRadius: 12, background: "rgba(255, 255, 255, 0.12)", color: "#fff", cursor: "pointer", fontSize: 18 }} aria-label="Rotate left 36 degrees" title="Rotate left 36 degrees">⟲</button>
+        <button type="button" onClick={() => rotateMap(36)} style={{ border: "none", width: 40, height: 40, borderRadius: 12, background: "rgba(255, 255, 255, 0.12)", color: "#fff", cursor: "pointer", fontSize: 18 }} aria-label="Rotate right 36 degrees" title="Rotate right 36 degrees">⟳</button>
+      </div>
+      <div style={{ position: "absolute", top: 16, left: 16, zIndex: 2, display: "flex", gap: 8, padding: 8, borderRadius: 16, background: "rgba(15, 23, 42, 0.72)", backdropFilter: "blur(10px)", boxShadow: "0 12px 30px rgba(0, 0, 0, 0.25)" }}>
+        <button type="button" onClick={() => tiltMap(8)} style={{ border: "none", width: 40, height: 40, borderRadius: 12, background: "rgba(255, 255, 255, 0.12)", color: "#fff", cursor: "pointer", fontSize: 18 }} aria-label="Tilt up" title="Tilt up">▲</button>
+        <button type="button" onClick={() => tiltMap(-8)} style={{ border: "none", width: 40, height: 40, borderRadius: 12, background: "rgba(255, 255, 255, 0.12)", color: "#fff", cursor: "pointer", fontSize: 18 }} aria-label="Tilt down" title="Tilt down">▼</button>
+      </div>
+      <button
+        type="button"
+        onPointerDown={startDragRotate}
+        onPointerMove={moveDragRotate}
+        onPointerUp={endDragRotate}
+        onPointerCancel={endDragRotate}
+        onLostPointerCapture={endDragRotate}
+        style={{
+          position: "absolute",
+          left: 16,
+          bottom: 16,
+          zIndex: 2,
+          border: "none",
+          padding: "10px 14px",
+          borderRadius: 999,
+          background: "rgba(15, 23, 42, 0.72)",
+          color: "#fff",
+          cursor: "grab",
+          backdropFilter: "blur(10px)",
+          boxShadow: "0 12px 30px rgba(0, 0, 0, 0.25)",
+          fontSize: 13,
+          fontWeight: 600,
+        }}
+        aria-label="Drag horizontally to rotate the map"
+        title="Drag horizontally to rotate the map"
+      >
+        Drag to rotate 360°
+      </button>
+      <div ref={mapDiv} style={{ width: "100%", height: "100%" }} />
+    </div>
+  );
 }
