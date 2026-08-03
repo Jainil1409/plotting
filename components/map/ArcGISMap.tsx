@@ -7,6 +7,7 @@ type LoadState = "loading" | "loaded" | "error";
 export default function ArcGISThreeMap() {
   const mapDiv = useRef<HTMLDivElement>(null);
   const viewRef = useRef<any>(null);
+  const modelAltitudeRef = useRef(0);
   const [status, setStatus] = useState<LoadState>("loading");
   const [errorMessage, setErrorMessage] = useState<string>("");
 
@@ -17,19 +18,20 @@ export default function ArcGISThreeMap() {
     let renderObject: any;
 
     (async () => {
-      const [Map, SceneView, externalRenderers, THREE, { GLTFLoader }] =
+      const [Map, SceneView, externalRenderers, THREE, { GLTFLoader }, Point] =
         await Promise.all([
           import("@arcgis/core/Map").then((m) => m.default),
           import("@arcgis/core/views/SceneView").then((m) => m.default),
           (import("@arcgis/core/views/3d/externalRenderers") as Promise<any>),
           import("three"),
           import("three/examples/jsm/loaders/GLTFLoader"),
+          import("@arcgis/core/geometry/Point").then((m) => m.default),
         ]);
 
       if (canceled || !mapDiv.current) return;
       externalRenderersModule = externalRenderers;
 
-      const map = new Map({ basemap: "streets" });
+      const map = new Map({ basemap: "streets", ground: "world-elevation" });
       view = new SceneView({
         container: mapDiv.current,
         map,
@@ -39,6 +41,8 @@ export default function ArcGISThreeMap() {
       viewRef.current = view;
 
       await view.when();
+      await map.ground.load();
+      await Promise.all(map.ground.layers.map((layer: any) => layer.load()));
       if (canceled) {
         view.destroy();
         return;
@@ -56,7 +60,29 @@ export default function ArcGISThreeMap() {
 
       const targetLon = 72.5714;
       const targetLat = 23.0225;
-      const targetAlt = 0;
+      // A renderer positioned at z: 0 is at sea level, not necessarily at the
+      // ground. Placing the GLB there lets terrain depth-hide part of the model.
+      const groundPoint = new Point({
+        longitude: targetLon,
+        latitude: targetLat,
+        z: 0,
+        spatialReference: { wkid: 4326 },
+      });
+      let targetAlt = 0;
+      try {
+        const elevation = await map.ground.queryElevation(groundPoint, {
+          noDataValue: 0,
+        });
+        if (elevation.geometry.type === "point") {
+          targetAlt = (elevation.geometry as any).z ?? 0;
+        }
+      } catch (err) {
+        // The model can still load if the elevation service is unavailable.
+        console.warn("Could not determine ground elevation; using z: 0", err);
+      }
+      // Keep a tiny clearance above terrain to prevent depth-buffer z-fighting.
+      targetAlt += 0.25;
+      modelAltitudeRef.current = targetAlt;
 
       if (canceled) return;
 
@@ -65,6 +91,7 @@ export default function ArcGISThreeMap() {
         scene: new THREE.Scene(),
         camera: new THREE.PerspectiveCamera(),
         model: null as THREE.Object3D | null,
+        placement: null as THREE.Group | null,
 
         setup(context: any) {
           this.renderer = new THREE.WebGLRenderer({
@@ -93,6 +120,10 @@ export default function ArcGISThreeMap() {
               // - fix transparency: only enable if material actually uses it
               this.model.traverse((child: any) => {
                 if (!child.isMesh) return;
+                // ArcGIS owns the camera/frustum. Disable Three.js' separate
+                // per-mesh culling, which can reject parts of a georeferenced
+                // GLB while the SceneView camera is being rotated.
+                child.frustumCulled = false;
                 const materials: THREE.Material[] = Array.isArray(child.material)
                   ? child.material
                   : [child.material];
@@ -138,16 +169,22 @@ export default function ArcGISThreeMap() {
 
               // Combine geo-orientation (quat) with -90° X rotation to convert
               // Y-up (GLB/Blender) → Z-up (ArcGIS render space)
-              const yUpToZUp = new THREE.Quaternion().setFromEuler(
-                new THREE.Euler(Math.PI / 2, 0, 0)
-              );
-              this.model.position.copy(pos);
-              this.model.quaternion.copy(quat).multiply(yUpToZUp);
-              this.model.scale.copy(scl).multiplyScalar(autoScale);
+              // Keep the geographic transform separate from the GLB transform.
+              // Moving the GLB by its local bottom makes its base sit on the
+              // sampled terrain even when the file's origin is not at its base.
+              this.placement = new THREE.Group();
+              this.placement.position.copy(pos);
+              this.placement.quaternion.copy(quat);
+              this.placement.scale.copy(scl);
 
-              this.scene.add(this.model);
+              this.model.rotation.x = Math.PI / 2;
+              this.model.position.set(0, -rawBox.min.y, 0);
+              this.model.scale.setScalar(autoScale);
+              this.placement.add(this.model);
+              this.scene.add(this.placement);
+              this.placement.updateMatrixWorld(true);
 
-              const box = new THREE.Box3().setFromObject(this.model);
+              const box = new THREE.Box3().setFromObject(this.placement);
               const size = new THREE.Vector3();
               box.getSize(size);
               console.log("model size (meters):", size);
@@ -187,14 +224,21 @@ export default function ArcGISThreeMap() {
         render(context: any) {
           if (!this.renderer) return;
 
-          // Clear ArcGIS's bound shader program BEFORE Three.js renders.
-          // Without this, Three.js tries to set uniforms on ArcGIS's active
-          // program causing INVALID_OPERATION: location is not from associated program.
+          // Clear ArcGIS's bound shader program before Three.js renders.
+          // This renderer version needs the direct bindings reset before it
+          // creates and binds the GLB's own vertex-array state.
           const gl = context.gl as WebGL2RenderingContext;
           gl.useProgram(null);
-          gl.bindVertexArray(null);//gl.bindVertexArray is used to bind the vertex of the model
-          gl.bindBuffer(gl.ARRAY_BUFFER, null);//gpu stores the total vertices of the model in the ARRAY_BUFFER
-          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);//gl.ELEMENT_ARRAY_BUFFER is calculate the indices
+          gl.bindVertexArray(null);
+          gl.bindBuffer(gl.ARRAY_BUFFER, null);
+          gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+          // Keep ArcGIS' depth buffer so the map stays visible, but restore
+          // the depth settings required for a normal Three.js model draw.
+          gl.enable(gl.DEPTH_TEST);
+          gl.depthFunc(gl.LEQUAL);
+          gl.depthMask(true);
+          gl.colorMask(true, true, true, true);
+
           const cam = context.camera;
           this.camera.position.set(cam.eye[0], cam.eye[1], cam.eye[2]);
           this.camera.up.set(cam.up[0], cam.up[1], cam.up[2]);
@@ -204,7 +248,7 @@ export default function ArcGISThreeMap() {
 
           this.renderer.render(this.scene, this.camera);
 
-          // Hand state back to ArcGIS cleanly after Three.js is done
+          // Hand state back to ArcGIS cleanly after Three.js is done.
           gl.bindVertexArray(null);
           gl.bindBuffer(gl.ARRAY_BUFFER, null);
           gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
@@ -230,7 +274,7 @@ export default function ArcGISThreeMap() {
 
   const handleResetView = () => {
     viewRef.current?.goTo({
-      target: { type: "point", x: 72.5714, y: 23.0225, z: 0, spatialReference: { wkid: 4326 } },
+      target: { type: "point", x: 72.5714, y: 23.0225, z: modelAltitudeRef.current, spatialReference: { wkid: 4326 } },
       scale: 1800,
       tilt: 60,
     });
