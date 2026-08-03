@@ -1,6 +1,6 @@
 "use client";
 
-type Tab = "external" | "symbol3d";
+export type Tab = "external" | "symbol3d" | "googlemaps";
 
 interface NavbarProps {
   active: Tab;
@@ -11,6 +11,7 @@ export default function Navbar({ active, onChange }: NavbarProps) {
   const tabs: { id: Tab; label: string }[] = [
     { id: "external", label: "External Renderer" },
     { id: "symbol3d", label: "ObjectSymbol3D" },
+    { id: "googlemaps", label: "Google Maps" },
   ];
 
   return (

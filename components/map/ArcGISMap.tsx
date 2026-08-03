@@ -43,10 +43,7 @@ export default function ArcGISThreeMap() {
       await view.when();
       await map.ground.load();
       await Promise.all(map.ground.layers.map((layer: any) => layer.load()));
-      if (canceled) {
-        view.destroy();
-        return;
-      }
+      if (canceled) { view.destroy(); return; }
 
       const glbUrl = "/model/brutalist_building.glb";
       const fileCheck = await fetch(glbUrl, { method: "HEAD" });
@@ -60,8 +57,6 @@ export default function ArcGISThreeMap() {
 
       const targetLon = 72.5714;
       const targetLat = 23.0225;
-      // A renderer positioned at z: 0 is at sea level, not necessarily at the
-      // ground. Placing the GLB there lets terrain depth-hide part of the model.
       const groundPoint = new Point({
         longitude: targetLon,
         latitude: targetLat,
@@ -70,17 +65,13 @@ export default function ArcGISThreeMap() {
       });
       let targetAlt = 0;
       try {
-        const elevation = await map.ground.queryElevation(groundPoint, {
-          noDataValue: 0,
-        });
+        const elevation = await map.ground.queryElevation(groundPoint, { noDataValue: 0 });
         if (elevation.geometry.type === "point") {
           targetAlt = (elevation.geometry as any).z ?? 0;
         }
       } catch (err) {
-        // The model can still load if the elevation service is unavailable.
         console.warn("Could not determine ground elevation; using z: 0", err);
       }
-      // Keep a tiny clearance above terrain to prevent depth-buffer z-fighting.
       targetAlt += 0.25;
       modelAltitudeRef.current = targetAlt;
 
@@ -99,13 +90,17 @@ export default function ArcGISThreeMap() {
             premultipliedAlpha: false,
           });
           this.renderer.autoClear = false;
+          // Use ACESFilmicToneMapping so PBR material colors match what the
+          // GLB author intended — same pipeline ObjectSymbol3D uses internally.
           this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-          this.renderer.toneMapping = THREE.NoToneMapping;
+          this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+          this.renderer.toneMappingExposure = 1.0;
 
-          // Neutral ambient so all faces get equal base light without color tinting
-          this.scene.add(new THREE.AmbientLight(0xffffff, 1.5));
-          const sun = new THREE.DirectionalLight(0xffffff, 1.0);
-          sun.position.set(1, 2, 2);
+          // Match the lighting ObjectSymbol3D uses: a moderate ambient +
+          // one directional. Keep intensity low so PBR albedo isn't blown out.
+          this.scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+          const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+          sun.position.set(1, 2, 3);
           this.scene.add(sun);
 
           const loader = new GLTFLoader();
@@ -114,27 +109,20 @@ export default function ArcGISThreeMap() {
             (gltf) => {
               this.model = gltf.scene;
 
-              // Normalize all materials so colors render correctly across any GLB:
-              // - disable vertexColors if no vertex color attribute exists (prevents black faces)
-              // - ensure double-sided rendering (prevents missing faces from backface culling)
-              // - fix transparency: only enable if material actually uses it
               this.model.traverse((child: any) => {
                 if (!child.isMesh) return;
-                // ArcGIS owns the camera/frustum. Disable Three.js' separate
-                // per-mesh culling, which can reject parts of a georeferenced
-                // GLB while the SceneView camera is being rotated.
+                // Disable Three.js frustum culling — ArcGIS controls the
+                // camera/frustum and the georeferenced model can be incorrectly
+                // culled when the view rotates.
                 child.frustumCulled = false;
-                const materials: THREE.Material[] = Array.isArray(child.material)
+                const materials: any[] = Array.isArray(child.material)
                   ? child.material
                   : [child.material];
                 materials.forEach((mat: any) => {
-                  // If no COLOR_0 vertex attribute, vertexColors causes black mesh
                   if (mat.vertexColors && !child.geometry?.attributes?.color) {
                     mat.vertexColors = false;
                   }
-                  // Show both sides so no faces vanish due to winding order
                   mat.side = THREE.DoubleSide;
-                  // Only mark transparent if opacity < 1 or alphaMap exists
                   if (mat.transparent && mat.opacity >= 1 && !mat.alphaMap) {
                     mat.transparent = false;
                   }
@@ -142,9 +130,6 @@ export default function ArcGISThreeMap() {
                 });
               });
 
-              // FIXED: this was previously a mangled/nonexistent method name
-              // (rHjQdbJsfW6tJAwi8rKnPjxUGCn1kpaQ7b) that would have thrown
-              // a TypeError here, silently aborting everything below it.
               const transform = new THREE.Matrix4();
               externalRenderersModule.renderCoordinateTransformAt(
                 view,
@@ -158,8 +143,6 @@ export default function ArcGISThreeMap() {
               const scl = new THREE.Vector3();
               transform.decompose(pos, quat, scl);
 
-              // Auto-scale: fit the model inside TARGET_SIZE meters so any
-              // GLB loads visibly regardless of its internal unit scale.
               const TARGET_SIZE = 100;
               const rawBox = new THREE.Box3().setFromObject(this.model);
               const rawSize = new THREE.Vector3();
@@ -167,11 +150,6 @@ export default function ArcGISThreeMap() {
               const maxRaw = Math.max(rawSize.x, rawSize.y, rawSize.z);
               const autoScale = maxRaw > 0 ? TARGET_SIZE / maxRaw : 1;
 
-              // Combine geo-orientation (quat) with -90° X rotation to convert
-              // Y-up (GLB/Blender) → Z-up (ArcGIS render space)
-              // Keep the geographic transform separate from the GLB transform.
-              // Moving the GLB by its local bottom makes its base sit on the
-              // sampled terrain even when the file's origin is not at its base.
               this.placement = new THREE.Group();
               this.placement.position.copy(pos);
               this.placement.quaternion.copy(quat);
@@ -187,8 +165,6 @@ export default function ArcGISThreeMap() {
               const box = new THREE.Box3().setFromObject(this.placement);
               const size = new THREE.Vector3();
               box.getSize(size);
-              console.log("model size (meters):", size);
-              console.log("model position (render space):", this.model.position);
 
               externalRenderersModule.requestRender(view);
               if (!canceled) setStatus("loaded");
@@ -222,39 +198,46 @@ export default function ArcGISThreeMap() {
         },
 
         render(context: any) {
-          if (!this.renderer) return;
+          if (!this.renderer || !this.model) return;
 
-          // Clear ArcGIS's bound shader program before Three.js renders.
-          // This renderer version needs the direct bindings reset before it
-          // creates and binds the GLB's own vertex-array state.
           const gl = context.gl as WebGL2RenderingContext;
+
+          // Reset any state ArcGIS left bound so Three.js starts clean.
           gl.useProgram(null);
           gl.bindVertexArray(null);
           gl.bindBuffer(gl.ARRAY_BUFFER, null);
           gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
-          // Keep ArcGIS' depth buffer so the map stays visible, but restore
-          // the depth settings required for a normal Three.js model draw.
           gl.enable(gl.DEPTH_TEST);
           gl.depthFunc(gl.LEQUAL);
           gl.depthMask(true);
           gl.colorMask(true, true, true, true);
 
+          // Sync the renderer size to the actual ArcGIS canvas every frame so
+          // Three.js never clips the scene to a stale/default 300×150 size.
+          const vp = context.camera.fullViewport;
+          this.renderer.setSize(vp[2], vp[3], false);
+          this.renderer.setViewport(vp[0], vp[1], vp[2], vp[3]);
+
+          // Use ArcGIS's exact view matrix instead of recomputing from
+          // position/up/lookAt — avoids camera drift during rotation.
           const cam = context.camera;
-          this.camera.position.set(cam.eye[0], cam.eye[1], cam.eye[2]);
-          this.camera.up.set(cam.up[0], cam.up[1], cam.up[2]);
-          this.camera.lookAt(new THREE.Vector3(cam.center[0], cam.center[1], cam.center[2]));
           this.camera.projectionMatrix.fromArray(cam.projectionMatrix);
           this.camera.projectionMatrixInverse.copy(this.camera.projectionMatrix).invert();
+          this.camera.matrixWorldInverse.fromArray(cam.viewMatrix);
+          this.camera.matrixWorld.copy(this.camera.matrixWorldInverse).invert();
+          this.camera.matrixAutoUpdate = false;
 
           this.renderer.render(this.scene, this.camera);
 
-          // Hand state back to ArcGIS cleanly after Three.js is done.
+          // Restore GL state for ArcGIS to continue rendering cleanly.
           gl.bindVertexArray(null);
           gl.bindBuffer(gl.ARRAY_BUFFER, null);
           gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
           gl.useProgram(null);
           context.resetWebGLState();
-          externalRenderersModule.requestRender(view);
+          // Do NOT call requestRender here — that creates a feedback loop
+          // causing flicker/glitch during rotation. ArcGIS calls render()
+          // automatically whenever the camera or scene changes.
         },
       };
 

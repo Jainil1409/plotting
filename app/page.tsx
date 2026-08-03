@@ -2,12 +2,11 @@
 
 import dynamic from "next/dynamic";
 import { useState } from "react";
-import Navbar from "@/components/Navbar";
+import Navbar, { type Tab } from "@/components/Navbar";
 
 const ArcGISMap = dynamic(() => import("@/components/map/ArcGISMap"), { ssr: false });
 const ObjectSymbol3DMap = dynamic(() => import("@/components/map/ObjectSymbol3DMap"), { ssr: false });
-
-type Tab = "external" | "symbol3d";
+const GoogleMap3D = dynamic(() => import("@/components/map/GoogleMap3D"), { ssr: false });
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<Tab>("external");
@@ -21,6 +20,9 @@ export default function Home() {
         </div>
         <div style={{ position: "absolute", inset: 0, display: activeTab === "symbol3d" ? "block" : "none" }}>
           <ObjectSymbol3DMap />
+        </div>
+        <div style={{ position: "absolute", inset: 0, display: activeTab === "googlemaps" ? "block" : "none" }}>
+          <GoogleMap3D />
         </div>
       </div>
     </div>
