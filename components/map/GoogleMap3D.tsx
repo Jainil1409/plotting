@@ -1,15 +1,101 @@
 /// <reference types="@types/google.maps" />
 "use client";
-import { useEffect, useRef } from "react";
-import type * as THREE from "three";
+import { useEffect, useRef, useState } from "react";
+import * as THREE from "three";
 
 const GOOGLE_MAPS_API_KEY = "AIzaSyBCswT9ODeUU9ByGUjbRg1KzV-nUF3BFkU"; // demo key
 const TARGET_LAT = 23.0225;
 const TARGET_LNG = 72.5714;
 
+type PropertyDetails = {
+  name: string;
+  bhk: string;
+  area: number;
+  price: string;
+};
+
+type PropertyPopup = {
+  x: number;
+  y: number;
+  meshName: string;
+  details: PropertyDetails;
+};
+
+const PROPERTY_DETAILS: Record<string, PropertyDetails> = {
+  Object_2: { name: "Plot A", bhk: "2 BHK", area: 1240, price: "Rs 68 Lakh" },
+  Object_3: { name: "Plot B", bhk: "3 BHK", area: 1680, price: "Rs 92 Lakh" },
+  Object_4: { name: "Plot C", bhk: "2 BHK", area: 1320, price: "Rs 74 Lakh" },
+  Object_5: { name: "Plot D", bhk: "3 BHK", area: 1760, price: "Rs 98 Lakh" },
+  Object_6: { name: "Plot E", bhk: "4 BHK", area: 2210, price: "Rs 1.24 Cr" },
+};
+
+const getPropertyDetailsForMesh = (meshName: string): PropertyDetails => {
+  const mapped = PROPERTY_DETAILS[meshName];
+  if (mapped) return mapped;
+
+  const index = Number(meshName.match(/\d+/)?.[0] ?? "1");
+  const bhkValue = 2 + (index % 3);
+  const area = 1100 + index * 35;
+  const basePriceLakh = 60 + index * 2;
+
+  return {
+    name: `Property ${meshName}`,
+    bhk: `${bhkValue} BHK`,
+    area,
+    price: `Rs ${basePriceLakh} Lakh`,
+  };
+};
+
+const pickMeshByProjectedCenter = (
+  meshes: THREE.Mesh[],
+  camera: THREE.PerspectiveCamera,
+  localX: number,
+  localY: number,
+  viewportWidth: number,
+  viewportHeight: number
+): THREE.Mesh | null => {
+  let bestMatch: { mesh: THREE.Mesh; score: number } | null = null;
+
+  for (const mesh of meshes) {
+    const geometry = mesh.geometry as THREE.BufferGeometry;
+    if (!geometry) continue;
+    if (!geometry.boundingSphere) geometry.computeBoundingSphere();
+    if (!geometry.boundingSphere) continue;
+
+    const centerWorld = geometry.boundingSphere.center.clone().applyMatrix4(mesh.matrixWorld);
+    const clipCenter = centerWorld.clone().applyMatrix4(camera.projectionMatrix);
+
+    if (clipCenter.z < -1 || clipCenter.z > 1) continue;
+
+    const centerX = (clipCenter.x * 0.5 + 0.5) * viewportWidth;
+    const centerY = (-clipCenter.y * 0.5 + 0.5) * viewportHeight;
+
+    const edgeWorld = centerWorld.clone().add(new THREE.Vector3(geometry.boundingSphere.radius, 0, 0));
+    const clipEdge = edgeWorld.applyMatrix4(camera.projectionMatrix);
+    const edgeX = (clipEdge.x * 0.5 + 0.5) * viewportWidth;
+    const edgeY = (-clipEdge.y * 0.5 + 0.5) * viewportHeight;
+
+    const radiusPx = Math.hypot(edgeX - centerX, edgeY - centerY);
+    const distancePx = Math.hypot(centerX - localX, centerY - localY);
+    const hitRadius = Math.max(16, radiusPx * 1.35);
+    if (distancePx > hitRadius) continue;
+
+    const score = distancePx / hitRadius;
+    if (!bestMatch || score < bestMatch.score) {
+      bestMatch = { mesh, score };
+    }
+  }
+
+  return bestMatch?.mesh ?? null;
+};
+
 export default function GoogleMap3D() {
   const mapDiv = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const selectableMeshesRef = useRef<THREE.Mesh[]>([]);
+  const raycasterRef = useRef(new THREE.Raycaster());
+  const [propertyPopup, setPropertyPopup] = useState<PropertyPopup | null>(null);
   const dragStateRef = useRef<{ pointerId: number | null; startX: number; startHeading: number; dragging: boolean }>({
     pointerId: null,
     startX: 0,
@@ -19,6 +105,11 @@ export default function GoogleMap3D() {
 
   useEffect(() => {
     let canceled = false;
+
+    const printHierarchy = (object: THREE.Object3D, level = 0) => {
+      console.log(`${" ".repeat(level * 2)}${object.name || "(no name)"} - ${object.type}`);
+      object.children.forEach((child) => printHierarchy(child, level + 1));
+    };
 
     const loadGoogleMaps = (): Promise<void> => {
       return new Promise((resolve, reject) => {
@@ -40,7 +131,6 @@ export default function GoogleMap3D() {
       await loadGoogleMaps();
       if (canceled || !mapDiv.current) return;
 
-      const THREE = await import("three");
       const { GLTFLoader } = await import("three/examples/jsm/loaders/GLTFLoader");
       const { RoomEnvironment } = await import("three/examples/jsm/environments/RoomEnvironment");
       if (canceled) return;
@@ -72,6 +162,7 @@ export default function GoogleMap3D() {
       overlay.onAdd = () => {
         scene = new THREE.Scene();
         camera = new THREE.PerspectiveCamera();
+        cameraRef.current = camera;
 
         // Ambient: soft neutral fill matching Google Maps diffuse base
         scene.add(new THREE.AmbientLight(0xf0f4ff, 0.6));
@@ -92,12 +183,16 @@ export default function GoogleMap3D() {
 
         const loader = new GLTFLoader();
         loader.load(
-          "/model/brutalist_building.glb",
+          "/model/countryside_plot_with_scenic_mountain_views.glb",
           (gltf) => {
             if (canceled) return;
             model = gltf.scene;
+            selectableMeshesRef.current = [];
+            console.log("GLB hierarchy:");
+            printHierarchy(model);
             model.traverse((child: any) => {
               if (!child.isMesh) return;
+              selectableMeshesRef.current.push(child as THREE.Mesh);
               child.frustumCulled = false;
               const mats: any[] = Array.isArray(child.material) ? child.material : [child.material];
               mats.forEach((mat: any) => {
@@ -186,8 +281,74 @@ export default function GoogleMap3D() {
     return () => {
       canceled = true;
       mapRef.current = null;
+      cameraRef.current = null;
+      selectableMeshesRef.current = [];
     };
   }, []);
+
+  const handleScenePick = (event: any) => {
+    const camera = cameraRef.current;
+    const mapElement = mapDiv.current;
+    if (!camera || !mapElement || selectableMeshesRef.current.length === 0) {
+      console.log("Raycast click ignored: scene is not ready yet");
+      return;
+    }
+
+    const rect = mapElement.getBoundingClientRect();
+    const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    raycasterRef.current.setFromCamera(new THREE.Vector2(x, y), camera);
+    const intersections = raycasterRef.current.intersectObjects(selectableMeshesRef.current, true);
+
+    // Keep mesh transforms current before fallback screen-space picking.
+    for (const mesh of selectableMeshesRef.current) {
+      mesh.updateMatrixWorld(true);
+    }
+
+    let pickedObject: THREE.Object3D | null = null;
+    let pickedBy: "raycast" | "screen-projection" | null = null;
+
+    if (intersections.length > 0) {
+      pickedObject = intersections[0].object;
+      pickedBy = "raycast";
+    } else {
+      const projectedHit = pickMeshByProjectedCenter(
+        selectableMeshesRef.current,
+        camera,
+        event.clientX - rect.left,
+        event.clientY - rect.top,
+        rect.width,
+        rect.height
+      );
+      if (projectedHit) {
+        pickedObject = projectedHit;
+        pickedBy = "screen-projection";
+      }
+    }
+
+    if (!pickedObject) {
+      console.log("Clicked object: none");
+      setPropertyPopup(null);
+      return;
+    }
+
+    const meshName = pickedObject.name || "(no name)";
+    const details = getPropertyDetailsForMesh(meshName);
+
+    console.log("Clicked object:", {
+      name: meshName,
+      type: pickedObject.type,
+      uuid: pickedObject.uuid,
+      method: pickedBy,
+    });
+    setPropertyPopup({
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+      meshName,
+      details,
+    });
+  };
 
   const rotateMap = (deltaDegrees: number) => {
     const map = mapRef.current;
@@ -275,7 +436,33 @@ export default function GoogleMap3D() {
       >
         Drag to rotate 360°
       </button>
-      <div ref={mapDiv} style={{ width: "100%", height: "100%" }} />
+      {propertyPopup && (
+        <div
+          style={{
+            position: "absolute",
+            left: propertyPopup.x + 14,
+            top: propertyPopup.y + 14,
+            zIndex: 3,
+            minWidth: 220,
+            maxWidth: 260,
+            background: "rgba(15, 23, 42, 0.92)",
+            border: "1px solid rgba(255, 255, 255, 0.15)",
+            borderRadius: 12,
+            padding: "12px 14px",
+            color: "#fff",
+            backdropFilter: "blur(8px)",
+            boxShadow: "0 16px 30px rgba(0, 0, 0, 0.3)",
+            pointerEvents: "none",
+          }}
+        >
+          <div style={{ fontSize: 12, opacity: 0.75, marginBottom: 8 }}>Mesh: {propertyPopup.meshName}</div>
+          <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>{propertyPopup.details.name}</div>
+          <div style={{ fontSize: 13, lineHeight: 1.5 }}>Type: {propertyPopup.details.bhk}</div>
+          <div style={{ fontSize: 13, lineHeight: 1.5 }}>Area: {propertyPopup.details.area} sq ft</div>
+          <div style={{ fontSize: 13, lineHeight: 1.5 }}>Price: {propertyPopup.details.price}</div>
+        </div>
+      )}
+      <div ref={mapDiv} onClick={handleScenePick} style={{ width: "100%", height: "100%" }} />
     </div>
   );
 }
