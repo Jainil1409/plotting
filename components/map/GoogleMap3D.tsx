@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 
 const GOOGLE_MAPS_API_KEY = "AIzaSyBCswT9ODeUU9ByGUjbRg1KzV-nUF3BFkU"; // demo key
-const TARGET_LAT = 23.0225;
-const TARGET_LNG = 72.5714;
+const TARGET_LAT = 25.0000;
+const TARGET_LNG =  16.0000;
 
 type PropertyDetails = {
   name: string;
@@ -29,21 +29,8 @@ const PROPERTY_DETAILS: Record<string, PropertyDetails> = {
   Object_6: { name: "Plot E", bhk: "4 BHK", area: 2210, price: "Rs 1.24 Cr" },
 };
 
-const getPropertyDetailsForMesh = (meshName: string): PropertyDetails => {
-  const mapped = PROPERTY_DETAILS[meshName];
-  if (mapped) return mapped;
-
-  const index = Number(meshName.match(/\d+/)?.[0] ?? "1");
-  const bhkValue = 2 + (index % 3);
-  const area = 1100 + index * 35;
-  const basePriceLakh = 60 + index * 2;
-
-  return {
-    name: `Property ${meshName}`,
-    bhk: `${bhkValue} BHK`,
-    area,
-    price: `Rs ${basePriceLakh} Lakh`,
-  };
+const getPropertyDetailsForMesh = (meshName: string): PropertyDetails | null => {
+  return PROPERTY_DETAILS[meshName] ?? null;
 };
 
 const pickMeshByProjectedCenter = (
@@ -342,6 +329,12 @@ export default function GoogleMap3D() {
       uuid: pickedObject.uuid,
       method: pickedBy,
     });
+
+    if (!details) {
+      setPropertyPopup(null);
+      return;
+    }
+
     setPropertyPopup({
       x: event.clientX - rect.left,
       y: event.clientY - rect.top,
