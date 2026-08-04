@@ -42,6 +42,7 @@ export default function GoogleMap3D() {
 
       const THREE = await import("three");
       const { GLTFLoader } = await import("three/examples/jsm/loaders/GLTFLoader");
+      const { RoomEnvironment } = await import("three/examples/jsm/environments/RoomEnvironment");
       if (canceled) return;
 
       const g = (window as any).google as typeof globalThis.google;
@@ -66,18 +67,28 @@ export default function GoogleMap3D() {
       let scene: THREE.Scene | null = null;
       let camera: THREE.PerspectiveCamera | null = null;
       let model: THREE.Object3D | null = null;
+      let pmremGenerator: THREE.PMREMGenerator | null = null;
 
       overlay.onAdd = () => {
         scene = new THREE.Scene();
         camera = new THREE.PerspectiveCamera();
 
-        scene.add(new THREE.AmbientLight(0xffffff, 0.4));
-        const hemi = new THREE.HemisphereLight(0xfafcff, 0xb9b9b9, 0.6);
+        // Ambient: soft neutral fill matching Google Maps diffuse base
+        scene.add(new THREE.AmbientLight(0xf0f4ff, 0.6));
+
+        // Hemisphere: sky (light blue) → ground (warm grey) like Google Maps
+        const hemi = new THREE.HemisphereLight(0xc9d8f0, 0x8a7f72, 0.8);
         scene.add(hemi);
 
-        const sun = new THREE.DirectionalLight(0xfff7eb, 1.45);
-        sun.position.set(1.25, 2.75, 3.25);
+        // Primary sun: warm white, high angle (Google Maps midday look)
+        const sun = new THREE.DirectionalLight(0xfff4e0, 1.8);
+        sun.position.set(2, 4, 3);
         scene.add(sun);
+
+        // Soft fill from opposite side to reduce harsh shadows
+        const fill = new THREE.DirectionalLight(0xd0e8ff, 0.4);
+        fill.position.set(-2, 1, -1);
+        scene.add(fill);
 
         const loader = new GLTFLoader();
         loader.load(
@@ -93,6 +104,12 @@ export default function GoogleMap3D() {
                 if (mat.vertexColors && !child.geometry?.attributes?.color) mat.vertexColors = false;
                 mat.side = THREE.DoubleSide;
                 if (mat.transparent && mat.opacity >= 1 && !mat.alphaMap) mat.transparent = false;
+                // Ensure physically-based shading
+                if (mat.isMeshStandardMaterial || mat.isMeshPhysicalMaterial) {
+                  mat.roughness = mat.roughness ?? 0.6;
+                  mat.metalness = mat.metalness ?? 0.1;
+                  mat.envMapIntensity = 1.2;
+                }
                 mat.needsUpdate = true;
               });
             });
@@ -132,7 +149,17 @@ export default function GoogleMap3D() {
         renderer.autoClear = false;
         renderer.outputColorSpace = THREE.SRGBColorSpace;
         renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        renderer.toneMappingExposure = 1.15;
+        renderer.toneMappingExposure = 1.0;
+
+        // Build a procedural HDR environment via PMREMGenerator
+        pmremGenerator = new THREE.PMREMGenerator(renderer);
+        pmremGenerator.compileEquirectangularShader();
+        const envScene = new RoomEnvironment();
+        const envTexture = pmremGenerator.fromScene(envScene).texture;
+        if (scene) {
+          scene.environment = envTexture;
+        }
+        envScene.dispose();
       };
 
       overlay.onDraw = ({ gl, transformer }: google.maps.WebGLDrawOptions) => {
