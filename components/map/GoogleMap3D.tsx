@@ -4,11 +4,19 @@ import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 
 const GOOGLE_MAPS_API_KEY = "AIzaSyBCswT9ODeUU9ByGUjbRg1KzV-nUF3BFkU"; // demo key
-const TARGET_LAT = 25.0000;
-const TARGET_LNG = 16.0000;
-// Initial model heading in degrees. 0 = North, 90 = East, 180 = South, 270 = West.
-// Change this value to set the default orientation of the model at load time.
+
+// Default anchor — model is visible here on load. User can move it via "Move Model".
+const DEFAULT_ANCHOR = { lat: 23.0225, lng: 72.5714, altitude: 0 }; // Ahmedabad
 const MODEL_HEADING = 0;
+
+// Describes a placed model instance. Designed to support multiple models later.
+type ModelConfig = {
+  id: string;
+  modelUrl: string;
+  anchor: { lat: number; lng: number; altitude: number };
+  heading: number;
+  scale: number;
+};
 
 type PropertyDetails = {
   name: string;
@@ -94,13 +102,27 @@ export default function GoogleMap3D() {
   const mapDiv = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  // pivotRef holds the outer Group whose rotation.z controls model heading.
-  // The inner gltf.scene only ever has rotation.x = PI/2 (Y-up -> Z-up fix).
   const pivotRef = useRef<THREE.Group | null>(null);
   const selectableMeshesRef = useRef<THREE.Mesh[]>([]);
   const raycasterRef = useRef(new THREE.Raycaster());
-  const [propertyPopup, setPropertyPopup] = useState<PropertyPopup | null>(null);
+  const overlayRef = useRef<any>(null);
 
+  // anchorRef is read every frame inside onDraw — using a ref avoids
+  // re-registering the overlay whenever the anchor state changes.
+  const anchorRef = useRef<{ lat: number; lng: number; altitude: number } | null>(DEFAULT_ANCHOR);
+  const placementListenerRef = useRef<any>(null);
+
+  const modelConfigRef = useRef<ModelConfig | null>({
+    id: "brutalist_building",
+    modelUrl: "/model/brutalist_building.glb",
+    anchor: DEFAULT_ANCHOR,
+    heading: MODEL_HEADING,
+    scale: 90,
+  });
+  const [modelConfig, setModelConfig] = useState<ModelConfig | null>(modelConfigRef.current);
+  const [placementMode, setPlacementMode] = useState(false);
+  const placementModeRef = useRef(false);
+  const [propertyPopup, setPropertyPopup] = useState<PropertyPopup | null>(null);
   const [modelHeadingDeg, setModelHeadingDeg] = useState(MODEL_HEADING);
   const [compassOpen, setCompassOpen] = useState(false);
   const dragStateRef = useRef<{ pointerId: number | null; startX: number; startHeading: number; dragging: boolean }>({
@@ -112,6 +134,9 @@ export default function GoogleMap3D() {
 
   useEffect(() => {
     let canceled = false;
+    // Re-apply default anchor in case cleanup from a previous
+    // StrictMode cycle set it to null.
+    anchorRef.current = DEFAULT_ANCHOR;
 
     const printHierarchy = (object: THREE.Object3D, level = 0) => {
       console.log(`${" ".repeat(level * 2)}${object.name || "(no name)"} - ${object.type}`);
@@ -145,9 +170,9 @@ export default function GoogleMap3D() {
       const g = (window as any).google as typeof globalThis.google;
 
       const map = new g.maps.Map(mapDiv.current, {
-        center: { lat: TARGET_LAT, lng: TARGET_LNG },
+        center: { lat: DEFAULT_ANCHOR.lat, lng: DEFAULT_ANCHOR.lng },
         zoom: 18,
-        tilt: 60,
+        tilt: 45,
         heading: 0,
         mapId: "8e0a97af9386fef",
         disableDefaultUI: true,
@@ -190,7 +215,7 @@ export default function GoogleMap3D() {
 
         const loader = new GLTFLoader();
         loader.load(
-          "/model/brutalist_building.glb",
+          modelConfigRef.current!.modelUrl,
           (gltf) => {
             if (canceled) return;
             model = gltf.scene;
@@ -260,7 +285,6 @@ export default function GoogleMap3D() {
             pivotRef.current = pivot;
 
             scene!.add(pivot);
-            overlay.requestRedraw();
           },
           undefined,
           (err) => console.error("GLTFLoader error:", err)
@@ -290,10 +314,11 @@ export default function GoogleMap3D() {
       };
 
       overlay.onDraw = ({ gl, transformer }: google.maps.WebGLDrawOptions) => {
-        if (!renderer || !scene || !camera || !pivotRef.current) return;
+        overlay.requestRedraw();
+        if (!renderer || !scene || !camera || !anchorRef.current) return;
 
         const matrix = transformer.fromLatLngAltitude(
-          { lat: TARGET_LAT, lng: TARGET_LNG, altitude: 0 },
+          anchorRef.current,
           new Float32Array(16)
         );
 
@@ -304,22 +329,68 @@ export default function GoogleMap3D() {
         gl.clear(gl.DEPTH_BUFFER_BIT);
         renderer.resetState();
         renderer.render(scene, camera);
-        overlay.requestRedraw();
       };
 
       overlay.setMap(map);
+      overlayRef.current = overlay;
     })();
 
     return () => {
       canceled = true;
+      if (placementListenerRef.current) {
+        (window as any).google?.maps?.event?.removeListener(placementListenerRef.current);
+        placementListenerRef.current = null;
+      }
       mapRef.current = null;
       cameraRef.current = null;
       pivotRef.current = null;
+      overlayRef.current = null;
+      anchorRef.current = null;
       selectableMeshesRef.current = [];
     };
   }, []);
 
+  const enterPlacementMode = () => {
+    const map = mapRef.current;
+    if (!map) return;
+    // Remove any existing listener first
+    if (placementListenerRef.current) {
+      (window as any).google.maps.event.removeListener(placementListenerRef.current);
+      placementListenerRef.current = null;
+    }
+    placementModeRef.current = true;
+    setPlacementMode(true);
+    placementListenerRef.current = map.addListener("click", (e: google.maps.MapMouseEvent) => {
+      if (!e.latLng) return;
+      const lat = e.latLng.lat();
+      const lng = e.latLng.lng();
+      const anchor = { lat, lng, altitude: 0 };
+      anchorRef.current = anchor;
+      const newConfig = {
+        id: "brutalist_building",
+        modelUrl: modelConfigRef.current!.modelUrl,
+        anchor,
+        heading: modelHeadingDeg,
+        scale: 90,
+      };
+      modelConfigRef.current = newConfig;
+      setModelConfig(newConfig);
+      // Zoom in and tilt toward the placed location
+      mapRef.current?.setCenter({ lat, lng });
+      mapRef.current?.setZoom(18);
+      mapRef.current?.setTilt(45);
+      overlayRef.current?.requestRedraw();
+      // Exit placement mode
+      (window as any).google.maps.event.removeListener(placementListenerRef.current);
+      placementListenerRef.current = null;
+      placementModeRef.current = false;
+      setPlacementMode(false);
+    });
+  };
+
   const handleScenePick = (event: any) => {
+    // Ignore scene picks while waiting for a placement click
+    if (placementModeRef.current) return;
     const camera = cameraRef.current;
     const mapElement = mapDiv.current;
     if (!camera || !mapElement || selectableMeshesRef.current.length === 0) {
@@ -447,12 +518,43 @@ export default function GoogleMap3D() {
     const normalized = ((degrees % 360) + 360) % 360;
     pivot.rotation.z = THREE.MathUtils.degToRad(normalized);
     setModelHeadingDeg(normalized);
+    setModelConfig(prev => {
+      const updated = prev ? { ...prev, heading: normalized } : prev;
+      modelConfigRef.current = updated;
+      return updated;
+    });
   };
 
 
 
   return (
     <div style={{ position: "relative", width: "100%", height: "100%", fontFamily: "'Inter', 'Segoe UI', sans-serif" }}>
+
+      {/* ── Top-left: Place / Move Model ── */}
+      <div style={{ position: "absolute", top: 16, left: 16, zIndex: 10 }}>
+        <button
+          type="button"
+          onClick={placementMode ? undefined : enterPlacementMode}
+          title={placementMode ? "Click anywhere on the map to place the model" : modelConfig ? "Move model to a new location" : "Place model on the map"}
+          style={{
+            border: placementMode ? "1.5px solid rgba(251,191,36,0.7)" : "1px solid rgba(255,255,255,0.08)",
+            borderRadius: 999,
+            padding: "9px 18px",
+            background: placementMode ? "rgba(251,191,36,0.18)" : "rgba(10,18,35,0.78)",
+            color: placementMode ? "#fbbf24" : "#e2e8f0",
+            cursor: placementMode ? "crosshair" : "pointer",
+            backdropFilter: "blur(12px)",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+            fontSize: 12, fontWeight: 700, letterSpacing: 0.4,
+            display: "flex", alignItems: "center", gap: 7,
+            transition: "background 0.2s, color 0.2s, border 0.2s",
+            userSelect: "none",
+          }}
+        >
+          <span style={{ fontSize: 15 }}>{placementMode ? "📍" : "✦"}</span>
+          {placementMode ? "Click map to place…" : "Move Model"}
+        </button>
+      </div>
 
       {/* ── Top-right: Map rotation ── */}
       <div style={{
@@ -681,7 +783,7 @@ export default function GoogleMap3D() {
         </div>
       )}
 
-      <div ref={mapDiv} onClick={handleScenePick} style={{ width: "100%", height: "100%" }} />
+      <div ref={mapDiv} onClick={handleScenePick} style={{ width: "100%", height: "100%", cursor: placementMode ? "crosshair" : "default" }} />
     </div>
   );
 }
