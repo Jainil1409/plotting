@@ -148,7 +148,12 @@ export default function GoogleMap3D() {
         if (typeof window === "undefined") return;
         if ((window as any).google?.maps?.Map) { resolve(); return; }
         const existing = document.getElementById("gmaps-script");
-        if (existing) { existing.addEventListener("load", () => resolve()); return; }
+        if (existing) {
+          const poll = setInterval(() => {
+            if ((window as any).google?.maps?.Map) { clearInterval(poll); resolve(); }
+          }, 50);
+          return;
+        }
         const script = document.createElement("script");
         script.id = "gmaps-script";
         script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_API_KEY}&v=beta`;
@@ -183,42 +188,30 @@ export default function GoogleMap3D() {
       });
       mapRef.current = map;
 
-      const overlay = new g.maps.WebGLOverlayView();
+      // ── Pre-load the GLB before attaching the overlay so the model is
+      // already in the scene when the very first onDraw fires. This is the
+      // definitive fix for the hard-refresh partial-model bug.
+      const scene = new THREE.Scene();
+      scene.add(new THREE.AmbientLight(0xf0f4ff, 0.6));
+      const hemi = new THREE.HemisphereLight(0xc9d8f0, 0x8a7f72, 0.8);
+      scene.add(hemi);
+      const sun = new THREE.DirectionalLight(0xfff4e0, 1.8);
+      sun.position.set(2, 4, 3);
+      scene.add(sun);
+      const fill = new THREE.DirectionalLight(0xd0e8ff, 0.4);
+      fill.position.set(-2, 1, -1);
+      scene.add(fill);
 
-      let renderer: THREE.WebGLRenderer | null = null;
-      let scene: THREE.Scene | null = null;
-      let camera: THREE.PerspectiveCamera | null = null;
-      let model: THREE.Object3D | null = null;
-      let pmremGenerator: THREE.PMREMGenerator | null = null;
+      const camera = new THREE.PerspectiveCamera();
+      cameraRef.current = camera;
 
-      overlay.onAdd = () => {
-        scene = new THREE.Scene();
-        camera = new THREE.PerspectiveCamera();
-        cameraRef.current = camera;
-
-        // Ambient: soft neutral fill matching Google Maps diffuse base
-        scene.add(new THREE.AmbientLight(0xf0f4ff, 0.6));
-
-        // Hemisphere: sky (light blue) → ground (warm grey) like Google Maps
-        const hemi = new THREE.HemisphereLight(0xc9d8f0, 0x8a7f72, 0.8);
-        scene.add(hemi);
-
-        // Primary sun: warm white, high angle (Google Maps midday look)
-        const sun = new THREE.DirectionalLight(0xfff4e0, 1.8);
-        sun.position.set(2, 4, 3);
-        scene.add(sun);
-
-        // Soft fill from opposite side to reduce harsh shadows
-        const fill = new THREE.DirectionalLight(0xd0e8ff, 0.4);
-        fill.position.set(-2, 1, -1);
-        scene.add(fill);
-
+      await new Promise<void>((resolve) => {
         const loader = new GLTFLoader();
         loader.load(
           modelConfigRef.current!.modelUrl,
           (gltf) => {
-            if (canceled) return;
-            model = gltf.scene;
+            if (canceled) { resolve(); return; }
+            const model = gltf.scene;
             selectableMeshesRef.current = [];
             console.log("GLB hierarchy:");
             printHierarchy(model);
@@ -240,56 +233,41 @@ export default function GoogleMap3D() {
               });
             });
 
-            // ── Step 1: scale to ~90m ──────────────────────────────────────
             const box = new THREE.Box3().setFromObject(model);
             const size = new THREE.Vector3();
             box.getSize(size);
             const maxDim = Math.max(size.x, size.y, size.z);
             model.scale.setScalar(maxDim > 0 ? 90 / maxDim : 1);
-
-            // ── Step 2: Y-up → Z-up correction (ONLY on the inner model) ──
             model.rotation.x = Math.PI / 2;
-
-            // ── Step 3: center + ground via a centering wrapper ────────────
-            // We must NOT put any XY offset on the pivot's direct child,
-            // because pivot.rotation.z would then orbit that offset around
-            // the world origin instead of spinning in place.
-            //
-            // Solution: wrap the model in a centering Group that absorbs the
-            // XY/Z offset. The centering group sits inside the pivot at (0,0,0).
-            // The pivot itself stays at (0,0,0) = the geographic anchor.
             model.updateMatrixWorld(true);
+
             const alignedBox = new THREE.Box3().setFromObject(model);
             const alignedCenter = new THREE.Vector3();
             alignedBox.getCenter(alignedCenter);
 
             const centerGroup = new THREE.Group();
             centerGroup.add(model);
-            // Offset the centering group so the model's XY center and bottom
-            // face sit exactly at the pivot origin (0, 0, 0).
-            centerGroup.position.set(
-              -alignedCenter.x,
-              -alignedCenter.y,
-              -alignedBox.min.z
-            );
-            // Reset any position that was previously set on the model itself
+            centerGroup.position.set(-alignedCenter.x, -alignedCenter.y, -alignedBox.min.z);
             model.position.set(0, 0, 0);
 
-            // ── Step 4: pivot Group — only rotation.z ever changes ─────────
-            // pivot sits at (0,0,0) in overlay space = TARGET_LAT/TARGET_LNG.
-            // Rotating pivot.rotation.z is a pure yaw: the centerGroup offset
-            // is (0,0,0) relative to the pivot, so there is no orbit.
             const pivot = new THREE.Group();
             pivot.add(centerGroup);
             pivot.rotation.z = THREE.MathUtils.degToRad(MODEL_HEADING);
             pivotRef.current = pivot;
-
-            scene!.add(pivot);
+            scene.add(pivot);
+            resolve();
           },
           undefined,
-          (err) => console.error("GLTFLoader error:", err)
+          (err) => { console.error("GLTFLoader error:", err); resolve(); }
         );
-      };
+      });
+
+      if (canceled) return;
+
+      const overlay = new g.maps.WebGLOverlayView();
+      let renderer: THREE.WebGLRenderer | null = null;
+
+      overlay.onAdd = () => { /* scene & camera already built above */ };
 
       overlay.onContextRestored = ({ gl }) => {
         renderer = new THREE.WebGLRenderer({
@@ -302,20 +280,17 @@ export default function GoogleMap3D() {
         renderer.toneMapping = THREE.ACESFilmicToneMapping;
         renderer.toneMappingExposure = 1.0;
 
-        // Build a procedural HDR environment via PMREMGenerator
-        pmremGenerator = new THREE.PMREMGenerator(renderer);
+        const pmremGenerator = new THREE.PMREMGenerator(renderer);
         pmremGenerator.compileEquirectangularShader();
         const envScene = new RoomEnvironment();
-        const envTexture = pmremGenerator.fromScene(envScene).texture;
-        if (scene) {
-          scene.environment = envTexture;
-        }
+        scene.environment = pmremGenerator.fromScene(envScene).texture;
         envScene.dispose();
+        pmremGenerator.dispose();
       };
 
       overlay.onDraw = ({ gl, transformer }: google.maps.WebGLDrawOptions) => {
         overlay.requestRedraw();
-        if (!renderer || !scene || !camera || !anchorRef.current) return;
+        if (!renderer || !anchorRef.current) return;
 
         const matrix = transformer.fromLatLngAltitude(
           anchorRef.current,
@@ -329,6 +304,7 @@ export default function GoogleMap3D() {
         gl.clear(gl.DEPTH_BUFFER_BIT);
         renderer.resetState();
         renderer.render(scene, camera);
+        renderer.resetState();
       };
 
       overlay.setMap(map);
