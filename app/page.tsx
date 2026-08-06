@@ -4,8 +4,8 @@ import dynamic from "next/dynamic";
 //import { useState } from "react";
 //import Navbar, { type Tab } from "@/components/Navbar";
 
-//const ArcGISMap = dynamic(() => import("@/components/map/ArcGISMap"), { ssr: false });
-//const ObjectSymbol3DMap = dynamic(() => import("@/components/map/ObjectSymbol3DMap"), { ssr: false });
+const ArcGISMap = dynamic(() => import("@/components/map/ArcGISMap"), { ssr: false });
+const ObjectSymbol3DMap = dynamic(() => import("@/components/map/ObjectSymbol3DMap"), { ssr: false });
 const GoogleMap3D = dynamic(() => import("@/components/map/GoogleMap3D"), { ssr: false });
 
 export default function Home() {

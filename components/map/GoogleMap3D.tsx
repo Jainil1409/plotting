@@ -188,9 +188,6 @@ export default function GoogleMap3D() {
       });
       mapRef.current = map;
 
-      // ── Pre-load the GLB before attaching the overlay so the model is
-      // already in the scene when the very first onDraw fires. This is the
-      // definitive fix for the hard-refresh partial-model bug.
       const scene = new THREE.Scene();
       scene.add(new THREE.AmbientLight(0xf0f4ff, 0.6));
       const hemi = new THREE.HemisphereLight(0xc9d8f0, 0x8a7f72, 0.8);
@@ -204,65 +201,6 @@ export default function GoogleMap3D() {
 
       const camera = new THREE.PerspectiveCamera();
       cameraRef.current = camera;
-
-      await new Promise<void>((resolve) => {
-        const loader = new GLTFLoader();
-        loader.load(
-          modelConfigRef.current!.modelUrl,
-          (gltf) => {
-            if (canceled) { resolve(); return; }
-            const model = gltf.scene;
-            selectableMeshesRef.current = [];
-            console.log("GLB hierarchy:");
-            printHierarchy(model);
-            model.traverse((child: any) => {
-              if (!child.isMesh) return;
-              selectableMeshesRef.current.push(child as THREE.Mesh);
-              child.frustumCulled = false;
-              const mats: any[] = Array.isArray(child.material) ? child.material : [child.material];
-              mats.forEach((mat: any) => {
-                if (mat.vertexColors && !child.geometry?.attributes?.color) mat.vertexColors = false;
-                mat.side = THREE.DoubleSide;
-                if (mat.transparent && mat.opacity >= 1 && !mat.alphaMap) mat.transparent = false;
-                if (mat.isMeshStandardMaterial || mat.isMeshPhysicalMaterial) {
-                  mat.roughness = mat.roughness ?? 0.6;
-                  mat.metalness = mat.metalness ?? 0.1;
-                  mat.envMapIntensity = 1.2;
-                }
-                mat.needsUpdate = true;
-              });
-            });
-
-            const box = new THREE.Box3().setFromObject(model);
-            const size = new THREE.Vector3();
-            box.getSize(size);
-            const maxDim = Math.max(size.x, size.y, size.z);
-            model.scale.setScalar(maxDim > 0 ? 90 / maxDim : 1);
-            model.rotation.x = Math.PI / 2;
-            model.updateMatrixWorld(true);
-
-            const alignedBox = new THREE.Box3().setFromObject(model);
-            const alignedCenter = new THREE.Vector3();
-            alignedBox.getCenter(alignedCenter);
-
-            const centerGroup = new THREE.Group();
-            centerGroup.add(model);
-            centerGroup.position.set(-alignedCenter.x, -alignedCenter.y, -alignedBox.min.z);
-            model.position.set(0, 0, 0);
-
-            const pivot = new THREE.Group();
-            pivot.add(centerGroup);
-            pivot.rotation.z = THREE.MathUtils.degToRad(MODEL_HEADING);
-            pivotRef.current = pivot;
-            scene.add(pivot);
-            resolve();
-          },
-          undefined,
-          (err) => { console.error("GLTFLoader error:", err); resolve(); }
-        );
-      });
-
-      if (canceled) return;
 
       const overlay = new g.maps.WebGLOverlayView();
       let renderer: THREE.WebGLRenderer | null = null;
@@ -309,6 +247,63 @@ export default function GoogleMap3D() {
 
       overlay.setMap(map);
       overlayRef.current = overlay;
+
+      // ── Map is live now. Load the GLB in the background and drop the
+      // model into the scene the moment it's ready.
+      const loader = new GLTFLoader();
+      loader.load(
+        modelConfigRef.current!.modelUrl,
+        (gltf) => {
+          if (canceled) return;
+          const model = gltf.scene;
+          selectableMeshesRef.current = [];
+          console.log("GLB hierarchy:");
+          printHierarchy(model);
+          model.traverse((child: any) => {
+            if (!child.isMesh) return;
+            selectableMeshesRef.current.push(child as THREE.Mesh);
+            child.frustumCulled = false;
+            const mats: any[] = Array.isArray(child.material) ? child.material : [child.material];
+            mats.forEach((mat: any) => {
+              if (mat.vertexColors && !child.geometry?.attributes?.color) mat.vertexColors = false;
+              mat.side = THREE.DoubleSide;
+              if (mat.transparent && mat.opacity >= 1 && !mat.alphaMap) mat.transparent = false;
+              if (mat.isMeshStandardMaterial || mat.isMeshPhysicalMaterial) {
+                mat.roughness = mat.roughness ?? 0.6;
+                mat.metalness = mat.metalness ?? 0.1;
+                mat.envMapIntensity = 1.2;
+              }
+              mat.needsUpdate = true;
+            });
+          });
+
+          const box = new THREE.Box3().setFromObject(model);
+          const size = new THREE.Vector3();
+          box.getSize(size);
+          const maxDim = Math.max(size.x, size.y, size.z);
+          model.scale.setScalar(maxDim > 0 ? 90 / maxDim : 1);
+          model.rotation.x = Math.PI / 2;
+          model.updateMatrixWorld(true);
+
+          const alignedBox = new THREE.Box3().setFromObject(model);
+          const alignedCenter = new THREE.Vector3();
+          alignedBox.getCenter(alignedCenter);
+
+          const centerGroup = new THREE.Group();
+          centerGroup.add(model);
+          centerGroup.position.set(-alignedCenter.x, -alignedCenter.y, -alignedBox.min.z);
+          model.position.set(0, 0, 0);
+
+          const pivot = new THREE.Group();
+          pivot.add(centerGroup);
+          pivot.rotation.z = THREE.MathUtils.degToRad(MODEL_HEADING);
+          pivotRef.current = pivot;
+          scene.add(pivot);
+          overlayRef.current?.requestRedraw();
+        },
+        undefined,
+        (err) => { console.error("GLTFLoader error:", err); }
+      );
     })();
 
     return () => {
