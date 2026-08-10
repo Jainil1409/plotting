@@ -1,4 +1,4 @@
-import GoogleMap3D from "@/components/map/GoogleMap3D";
+import GoogleMap3D from "@/src/components/GoogleMap3D";
 
 export default function Page() {
   return (

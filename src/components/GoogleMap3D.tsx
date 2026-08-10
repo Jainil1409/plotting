@@ -2,7 +2,17 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
-import ModelViewer from "@/src/components/ModelViewer";
+
+import { GoogleMapsThreeRenderer } from "@/src/three/scene/GoogleMapsThreeRenderer";
+import { ModelManager } from "@/src/three/models/ModelManager";
+import { LoadedModel, ModelConfig } from "@/src/three/models/modelTypes";
+import { HotspotManager } from "@/src/three/hotspots/HotspotManager";
+import { ModelInteractionManager, PropertyPopup } from "@/src/three/interaction/ModelInteractionManager";
+
+import { PROPERTY_DETAILS } from "@/src/data/properties";
+import { HOTSPOTS } from "@/src/data/hotspots";
+
+import ModelViewerOverlay from "@/src/components/ModelViewerOverlay";
 
 const GOOGLE_MAPS_API_KEY = "AIzaSyBCswT9ODeUU9ByGUjbRg1KzV-nUF3BFkU"; // demo key
 
@@ -13,211 +23,27 @@ const MODEL_HEADING = 0;
 const HOUSE_MODEL_URL = "/model/modern_house_06.glb";
 const TARGET_MAX_DIM = 90;
 
-// Calibrated via Alt+click on the door — this is the real position, in the
-// house pivot's local coordinate space (see handleScenePick's Alt+click
-// Positioned right at the entrance door on the ground floor
-const DOOR_HOTSPOT_LOCAL = { x: 3.5, y: 12.0, z: 2.2 };
-
-// Describes a placed model instance. Designed to support multiple models later.
-type ModelConfig = {
-  id: string;
-  modelUrl: string;
-  anchor: { lat: number; lng: number; altitude: number };
-  heading: number;
-  scale: number;
-};
-
-type PropertyDetails = {
-  name: string;
-  bhk: string;
-  area: number;
-  price: string;
-};
-
-type PropertyPopup = {
-  x: number;
-  y: number;
-  meshName: string;
-  details: PropertyDetails;
-};
-
-const PROPERTY_DETAILS: Record<string, PropertyDetails> = {
-  Object_2: { name: "Plot A", bhk: "2 BHK", area: 1240, price: "Rs 68 Lakh" },
-  Object_3: { name: "Plot B", bhk: "3 BHK", area: 1680, price: "Rs 92 Lakh" },
-  Object_4: { name: "Plot C", bhk: "2 BHK", area: 1320, price: "Rs 74 Lakh" },
-  Object_5: { name: "Plot D", bhk: "3 BHK", area: 1760, price: "Rs 98 Lakh" },
-  Object_6: { name: "Plot E", bhk: "4 BHK", area: 2210, price: "Rs 1.24 Cr" },
-  Object_7: { name: "Plot F", bhk: "4 BHK", area: 2300, price: "Rs 1.28 Cr" },
-  Object_8: { name: "Plot G", bhk: "3 BHK", area: 1800, price: "Rs 1.02 Cr" },
-  Object_9: { name: "Plot H", bhk: "2 BHK", area: 1400, price: "Rs 78 Lakh" },
-  Object_10: { name: "Plot I", bhk: "3 BHK", area: 1720, price: "Rs 95 Lakh" },
-  Object_11: { name: "Plot J", bhk: "4 BHK", area: 2380, price: "Rs 1.32 Cr" },
-  Object_12: { name: "Plot K", bhk: "3 BHK", area: 1780, price: "Rs 99 Lakh" },
-  Object_13: { name: "Plot L", bhk: "2 BHK", area: 1300, price: "Rs 72 Lakh" },
-  Object_14: { name: "Plot M", bhk: "4 BHK", area: 2400, price: "Rs 1.34 Cr" },
-  Object_15: { name: "Plot N", bhk: "3 BHK", area: 1820, price: "Rs 1.04 Cr" },
-  Object_16: { name: "Plot O", bhk: "2 BHK", area: 1340, price: "Rs 76 Lakh" },
-  Object_17: { name: "Plot P", bhk: "4 BHK", area: 2420, price: "Rs 1.36 Cr" },
-};
-
-const getPropertyDetailsForMesh = (meshName: string): PropertyDetails | null => {
-  return PROPERTY_DETAILS[meshName] ?? null;
-};
-
-const pickMeshByProjectedCenter = (
-  meshes: THREE.Mesh[],
-  camera: THREE.PerspectiveCamera,
-  localX: number,
-  localY: number,
-  viewportWidth: number,
-  viewportHeight: number
-): THREE.Mesh | null => {
-  let bestMatch: { mesh: THREE.Mesh; score: number } | null = null;
-
-  for (const mesh of meshes) {
-    const geometry = mesh.geometry as THREE.BufferGeometry;
-    if (!geometry) continue;
-    if (!geometry.boundingSphere) geometry.computeBoundingSphere();
-    if (!geometry.boundingSphere) continue;
-
-    const centerWorld = geometry.boundingSphere.center.clone().applyMatrix4(mesh.matrixWorld);
-    const clipCenter = centerWorld.clone().applyMatrix4(camera.projectionMatrix);
-
-    if (clipCenter.z < -1 || clipCenter.z > 1) continue;
-
-    const centerX = (clipCenter.x * 0.5 + 0.5) * viewportWidth;
-    const centerY = (-clipCenter.y * 0.5 + 0.5) * viewportHeight;
-
-    const edgeWorld = centerWorld.clone().add(new THREE.Vector3(geometry.boundingSphere.radius, 0, 0));
-    const clipEdge = edgeWorld.applyMatrix4(camera.projectionMatrix);
-    const edgeX = (clipEdge.x * 0.5 + 0.5) * viewportWidth;
-    const edgeY = (-clipEdge.y * 0.5 + 0.5) * viewportHeight;
-
-    const radiusPx = Math.hypot(edgeX - centerX, edgeY - centerY);
-    const distancePx = Math.hypot(centerX - localX, centerY - localY);
-    const hitRadius = Math.min(Math.max(16, radiusPx * 1.35), 60);
-    if (distancePx > hitRadius) continue;
-
-    const score = distancePx / hitRadius;
-    if (!bestMatch || score < bestMatch.score) {
-      bestMatch = { mesh, score };
-    }
-  }
-
-  return bestMatch?.mesh ?? null;
-};
-
-// ── Material normalization + mesh collection ────────────────────────────
-function normalizeMaterialsAndCollectMeshes(model: THREE.Object3D): THREE.Mesh[] {
-  const meshes: THREE.Mesh[] = [];
-  model.traverse((child: any) => {
-    if (!child.isMesh) return;
-    meshes.push(child as THREE.Mesh);
-    child.frustumCulled = false;
-    const mats: any[] = Array.isArray(child.material) ? child.material : [child.material];
-    mats.forEach((mat: any) => {
-      if (mat.vertexColors && !child.geometry?.attributes?.color) mat.vertexColors = false;
-      mat.side = THREE.DoubleSide;
-      if (mat.transparent && mat.opacity >= 1 && !mat.alphaMap) mat.transparent = false;
-      if (mat.isMeshStandardMaterial || mat.isMeshPhysicalMaterial) {
-        mat.roughness = mat.roughness ?? 0.6;
-        mat.metalness = mat.metalness ?? 0.1;
-        mat.envMapIntensity = 1.2;
-      }
-      mat.needsUpdate = true;
-    });
-  });
-  return meshes;
-}
-
-// ── Scale / center / pivot wrapping ─────────────────────────────────────
-function buildPivotFromModel(
-  model: THREE.Object3D,
-  headingDeg: number,
-  targetMaxDim = TARGET_MAX_DIM
-): THREE.Group {
-  const box = new THREE.Box3().setFromObject(model);
-  const size = new THREE.Vector3();
-  box.getSize(size);
-  const maxDim = Math.max(size.x, size.y, size.z);
-  model.scale.setScalar(maxDim > 0 ? targetMaxDim / maxDim : 1);
-  model.rotation.x = Math.PI / 2;
-  model.updateMatrixWorld(true);
-
-  const alignedBox = new THREE.Box3().setFromObject(model);
-  const alignedCenter = new THREE.Vector3();
-  alignedBox.getCenter(alignedCenter);
-
-  const centerGroup = new THREE.Group();
-  centerGroup.add(model);
-  centerGroup.position.set(-alignedCenter.x, -alignedCenter.y, -alignedBox.min.z);
-  model.position.set(0, 0, 0);
-
-  const pivot = new THREE.Group();
-  pivot.add(centerGroup);
-  pivot.rotation.z = THREE.MathUtils.degToRad(headingDeg);
-  return pivot;
-}
-
-// ── Hotspot marker ───────────────────────────────────────────────────────
-const HOTSPOT_ACCENT = 0x22d3ee;
-
-interface HotspotHandle {
-  group: THREE.Group;
-  core: THREE.Mesh;
-  ring: THREE.Mesh;
-}
-
-function createHotspot(localPosition: { x: number; y: number; z: number }): HotspotHandle {
-  const group = new THREE.Group();
-  group.position.set(localPosition.x, localPosition.y, localPosition.z);
-
-  const core = new THREE.Mesh(
-    new THREE.SphereGeometry(1.2, 32, 32),
-    new THREE.MeshBasicMaterial({ color: HOTSPOT_ACCENT, transparent: true, opacity: 0.95, depthTest: false })
-  );
-  core.renderOrder = 999;
-  group.add(core);
-
-  const ring = new THREE.Mesh(
-    new THREE.RingGeometry(1.6, 2.2, 32),
-    new THREE.MeshBasicMaterial({ color: HOTSPOT_ACCENT, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthTest: false })
-  );
-  ring.rotation.x = -Math.PI / 2;
-  ring.renderOrder = 999;
-  group.add(ring);
-
-  const edgeRing = new THREE.Mesh(
-    new THREE.RingGeometry(1.4, 1.5, 32),
-    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthTest: false })
-  );
-  edgeRing.rotation.x = -Math.PI / 2;
-  edgeRing.renderOrder = 999;
-  group.add(edgeRing);
-
-  return { group, core, ring };
-}
-
 export default function GoogleMap3D() {
   const mapDiv = useRef<HTMLDivElement>(null);
   const mapRef = useRef<any>(null);
-  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const pivotRef = useRef<THREE.Group | null>(null);
-  const selectableMeshesRef = useRef<THREE.Mesh[]>([]);
-  const raycasterRef = useRef(new THREE.Raycaster());
-  const overlayRef = useRef<any>(null);
+
+  const rendererRef = useRef<GoogleMapsThreeRenderer | null>(null);
+  const modelManagerRef = useRef(new ModelManager());
+  const hotspotManagerRef = useRef(new HotspotManager());
+  const interactionManagerRef = useRef<ModelInteractionManager | null>(null);
+
+  const currentModelRef = useRef<LoadedModel | null>(null);
   const clockRef = useRef(new THREE.Clock());
-  const hotspotRef = useRef<HotspotHandle | null>(null);
 
   const anchorRef = useRef<{ lat: number; lng: number; altitude: number } | null>(DEFAULT_ANCHOR);
   const placementListenerRef = useRef<any>(null);
 
   const modelConfigRef = useRef<ModelConfig | null>({
-    id: "brutalist_building",
+    id: "house",
     modelUrl: HOUSE_MODEL_URL,
     anchor: DEFAULT_ANCHOR,
     heading: MODEL_HEADING,
-    scale: 90,
+    scale: TARGET_MAX_DIM,
   });
   const [modelConfig, setModelConfig] = useState<ModelConfig | null>(modelConfigRef.current);
   const [placementMode, setPlacementMode] = useState(false);
@@ -227,7 +53,7 @@ export default function GoogleMap3D() {
   const [compassOpen, setCompassOpen] = useState(false);
 
   // The ONLY thing hotspot clicks do now: flip this. It mounts/unmounts
-  // <ModelViewer>, a completely independent canvas — no scene swapping
+  // <ModelViewerOverlay>, a completely independent canvas — no scene swapping
   // inside the map's own WebGLOverlayView anymore.
   const [apartmentOpen, setApartmentOpen] = useState(false);
 
@@ -241,11 +67,6 @@ export default function GoogleMap3D() {
   useEffect(() => {
     let canceled = false;
     anchorRef.current = DEFAULT_ANCHOR;
-
-    const printHierarchy = (object: THREE.Object3D, level = 0) => {
-      console.log(`${" ".repeat(level * 2)}${object.name || "(no name)"} - ${object.type}`);
-      object.children.forEach((child) => printHierarchy(child, level + 1));
-    };
 
     const loadGoogleMaps = (): Promise<void> => {
       return new Promise((resolve, reject) => {
@@ -272,10 +93,6 @@ export default function GoogleMap3D() {
       await loadGoogleMaps();
       if (canceled || !mapDiv.current) return;
 
-      const { GLTFLoader } = await import("three/examples/jsm/loaders/GLTFLoader");
-      const { RoomEnvironment } = await import("three/examples/jsm/environments/RoomEnvironment");
-      if (canceled) return;
-
       const g = (window as any).google as typeof globalThis.google;
 
       const map = new g.maps.Map(mapDiv.current, {
@@ -292,115 +109,42 @@ export default function GoogleMap3D() {
       });
       mapRef.current = map;
 
-      const scene = new THREE.Scene();
-      scene.add(new THREE.AmbientLight(0xf0f4ff, 0.6));
-      const hemi = new THREE.HemisphereLight(0xc9d8f0, 0x8a7f72, 0.8);
-      scene.add(hemi);
-      const sun = new THREE.DirectionalLight(0xfff4e0, 1.8);
-      sun.position.set(2, 4, 3);
-      scene.add(sun);
-      const fill = new THREE.DirectionalLight(0xd0e8ff, 0.4);
-      fill.position.set(-2, 1, -1);
-      scene.add(fill);
+      // ── Three.js scene / camera / renderer via GoogleMapsThreeRenderer ──
+      const renderer = new GoogleMapsThreeRenderer();
+      renderer.setAnchor(DEFAULT_ANCHOR);
+      renderer.setOnDraw(() => {
+        // Update hotspot animations each frame
+        const t = clockRef.current.getElapsedTime();
+        hotspotManagerRef.current.update(t);
+      });
+      renderer.attachToMap(map);
+      rendererRef.current = renderer;
 
-      const camera = new THREE.PerspectiveCamera();
-      cameraRef.current = camera;
-
-      const overlay = new g.maps.WebGLOverlayView();
-      let renderer: THREE.WebGLRenderer | null = null;
-
-      overlay.onAdd = () => { /* scene & camera already built above */ };
-
-      overlay.onContextRestored = ({ gl }) => {
-        renderer = new THREE.WebGLRenderer({
-          canvas: gl.canvas as HTMLCanvasElement,
-          context: gl,
-          ...gl.getContextAttributes(),
-        });
-        renderer.autoClear = false;
-        renderer.outputColorSpace = THREE.SRGBColorSpace;
-        renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        renderer.toneMappingExposure = 1.0;
-
-        const pmremGenerator = new THREE.PMREMGenerator(renderer);
-        pmremGenerator.compileEquirectangularShader();
-        const envScene = new RoomEnvironment();
-        scene.environment = pmremGenerator.fromScene(envScene).texture;
-        envScene.dispose();
-        pmremGenerator.dispose();
-      };
-
-      overlay.onDraw = ({ gl, transformer }: google.maps.WebGLDrawOptions) => {
-        overlay.requestRedraw();
-        if (!renderer || !anchorRef.current) return;
-
-        const matrix = transformer.fromLatLngAltitude(
-          anchorRef.current,
-          new Float32Array(16)
-        );
-
-        camera.projectionMatrix.fromArray(matrix);
-        camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
-
-        if (hotspotRef.current) {
-          const t = clockRef.current.getElapsedTime();
-          const pulse = (t * 0.9) % 1;
-          hotspotRef.current.ring.scale.setScalar(1 + pulse * 1.4);
-          (hotspotRef.current.ring.material as THREE.MeshBasicMaterial).opacity = (1 - pulse) * 0.6;
-          hotspotRef.current.core.scale.setScalar(1 + Math.sin(t * 3) * 0.12);
-
-          // Counter-rotate hotspot group so its visual orientation remains fixed/upright regardless of model rotation
-          if (hotspotRef.current.group.parent) {
-            const parentWorldQuat = new THREE.Quaternion();
-            hotspotRef.current.group.parent.getWorldQuaternion(parentWorldQuat);
-            hotspotRef.current.group.quaternion.copy(parentWorldQuat).invert();
-          }
-        }
-
-        gl.disable(gl.SCISSOR_TEST);
-        gl.clear(gl.DEPTH_BUFFER_BIT);
-        renderer.resetState();
-        renderer.render(scene, camera);
-        renderer.resetState();
-      };
-
-      overlay.setMap(map);
-      overlayRef.current = overlay;
-
-      const loader = new GLTFLoader();
-      loader.load(
-        modelConfigRef.current!.modelUrl,
-        (gltf) => {
-          if (canceled) return;
-          const model = gltf.scene;
-          console.log("GLB hierarchy:");
-          printHierarchy(model);
-
-          const meshes = normalizeMaterialsAndCollectMeshes(model);
-          selectableMeshesRef.current = meshes;
-
-          const pivot = buildPivotFromModel(model, MODEL_HEADING);
-          pivotRef.current = pivot;
-          scene.add(pivot);
-
-          const hotspot = createHotspot(DOOR_HOTSPOT_LOCAL);
-          pivot.add(hotspot.group);
-          hotspot.group.updateMatrixWorld(true);
-          const helper = new THREE.BoxHelper(hotspot.group, 0xff0000);
-          scene.add(helper);
-
-          const p = new THREE.Vector3();
-          hotspot.group.getWorldPosition(p);
-
-          console.log("Hotspot World Position:", p);
-
-          hotspotRef.current = hotspot;
-
-          overlayRef.current?.requestRedraw();
-        },
-        undefined,
-        (err) => { console.error("GLTFLoader error:", err); }
+      // ── Interaction manager (property selection) ──
+      interactionManagerRef.current = new ModelInteractionManager(
+        [],
+        PROPERTY_DETAILS
       );
+
+      // ── Load the initial model ──
+      const config = modelConfigRef.current!;
+      const loaded = await modelManagerRef.current.loadModel(config);
+
+      if (canceled) return;
+
+      modelManagerRef.current.addModel(renderer.scene, loaded);
+      currentModelRef.current = loaded;
+
+      interactionManagerRef.current?.setMeshes(loaded.meshes);
+
+      // ── Create hotspots for this model (separate from model loading) ──
+      const modelHotspots = HOTSPOTS[config.id] ?? [];
+      for (const hotspotConfig of modelHotspots) {
+        const hotspot = hotspotManagerRef.current.createHotspot(hotspotConfig);
+        hotspotManagerRef.current.attachHotspot(loaded.pivot, hotspot);
+      }
+
+      renderer.requestRedraw();
     })();
 
     return () => {
@@ -409,13 +153,23 @@ export default function GoogleMap3D() {
         (window as any).google?.maps?.event?.removeListener(placementListenerRef.current);
         placementListenerRef.current = null;
       }
+
+      // Dispose model
+      if (currentModelRef.current) {
+        modelManagerRef.current.dispose(currentModelRef.current);
+        currentModelRef.current = null;
+      }
+
+      // Dispose hotspots
+      hotspotManagerRef.current.dispose();
+
+      // Dispose renderer
+      rendererRef.current?.dispose();
+      rendererRef.current = null;
+
       mapRef.current = null;
-      cameraRef.current = null;
-      pivotRef.current = null;
-      overlayRef.current = null;
       anchorRef.current = null;
-      selectableMeshesRef.current = [];
-      hotspotRef.current = null;
+      interactionManagerRef.current = null;
     };
   }, []);
 
@@ -435,18 +189,19 @@ export default function GoogleMap3D() {
       const anchor = { lat, lng, altitude: 0 };
       anchorRef.current = anchor;
       const newConfig = {
-        id: "brutalist_building",
+        id: "house",
         modelUrl: modelConfigRef.current!.modelUrl,
         anchor,
         heading: modelHeadingDeg,
-        scale: 90,
+        scale: TARGET_MAX_DIM,
       };
       modelConfigRef.current = newConfig;
       setModelConfig(newConfig);
       mapRef.current?.setCenter({ lat, lng });
       mapRef.current?.setZoom(18);
       mapRef.current?.setTilt(45);
-      overlayRef.current?.requestRedraw();
+      rendererRef.current?.setAnchor(anchor);
+      rendererRef.current?.requestRedraw();
       (window as any).google.maps.event.removeListener(placementListenerRef.current);
       placementListenerRef.current = null;
       placementModeRef.current = false;
@@ -456,24 +211,25 @@ export default function GoogleMap3D() {
 
   const handleScenePick = (event: any) => {
     if (placementModeRef.current) return;
-    const camera = cameraRef.current;
+    const renderer = rendererRef.current;
     const mapElement = mapDiv.current;
-    if (!camera || !mapElement) {
+    if (!renderer || !mapElement) {
       console.log("Raycast click ignored: scene is not ready yet");
       return;
     }
 
-    const rect = mapElement.getBoundingClientRect();
-    const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-    raycasterRef.current.setFromCamera(new THREE.Vector2(x, y), camera);
+    const camera = renderer.camera;
 
     // Calibration: Alt+click any point on the house to log its exact
-    // pivot-local coordinate. See DOOR_HOTSPOT_LOCAL above.
-    if (event.altKey && pivotRef.current) {
-      const hits = raycasterRef.current.intersectObject(pivotRef.current, true);
-      if (hits.length > 0) {
-        const local = pivotRef.current.worldToLocal(hits[0].point.clone());
+    // pivot-local coordinate.
+    if (event.altKey && currentModelRef.current) {
+      const local = interactionManagerRef.current?.calibrateLocalPosition(
+        event,
+        camera,
+        currentModelRef.current.pivot,
+        mapElement
+      );
+      if (local) {
         console.info("Calibration — Alt+clicked pivot-local position:", [local.x, local.y, local.z]);
       } else {
         console.info("Calibration: Alt+click didn't hit any model geometry.");
@@ -481,112 +237,31 @@ export default function GoogleMap3D() {
       return;
     }
 
-    // Hotspot click — opens the standalone model viewer overlay.
-    // No model swapping in THIS scene happens anymore.
-    // if (hotspotRef.current) {
-    //   const hotspotHits = raycasterRef.current.intersectObject(hotspotRef.current.core, true);
-    //   if (hotspotHits.length > 0) {
-    //     setApartmentOpen(true);
-    //     return;
-    //   }
-    // }
+    // ── Hotspot click detection (independent of model loading) ──
+    const hotspot = hotspotManagerRef.current.pickHotspotAt(
+      event,
+      camera,
+      mapElement
+    );
 
-    if (hotspotRef.current && camera) {
-      // 1. Update hotspot world matrix
-      hotspotRef.current.group.updateMatrixWorld(true);
-
-      // 2. Try 3D raycast
-      const hotspotHits = raycasterRef.current.intersectObject(
-        hotspotRef.current.group,
-        true
-      );
-
-      // 3. Screen projection check (solves Google Maps WebGLOverlayView raycast Matrix mismatch)
-      const worldPos = new THREE.Vector3();
-      hotspotRef.current.group.getWorldPosition(worldPos);
-      const ndc = worldPos.project(camera);
-
-      let isScreenHit = false;
-      if (ndc.z < 1.0) {
-        const hotspotScreenX = (ndc.x * 0.5 + 0.5) * rect.width;
-        const hotspotScreenY = (-ndc.y * 0.5 + 0.5) * rect.height;
-        const clickX = event.clientX - rect.left;
-        const clickY = event.clientY - rect.top;
-        const distPx = Math.hypot(hotspotScreenX - clickX, hotspotScreenY - clickY);
-        if (distPx <= 50) { // generous 50px click radius around hotspot center
-          isScreenHit = true;
-        }
-      }
-
-      console.log("Hotspot hits:", hotspotHits.length, "| Screen hit:", isScreenHit);
-
-      if (hotspotHits.length > 0 || isScreenHit) {
-        console.log("Hotspot clicked -> Opening ModelViewer");
-        setApartmentOpen(true);
-        return;
-      }
-    }
-
-
-    if (selectableMeshesRef.current.length === 0) {
-      setPropertyPopup(null);
+    if (hotspot) {
+      console.log("Hotspot clicked -> Opening ModelViewer:", hotspot.nextModelUrl);
+      setApartmentOpen(true);
       return;
     }
 
-    const intersections = raycasterRef.current.intersectObjects(selectableMeshesRef.current, true);
+    // ── Property selection via ModelInteractionManager ──
+    const result = interactionManagerRef.current?.handleClick(
+      event,
+      camera,
+      mapElement
+    );
 
-    for (const mesh of selectableMeshesRef.current) {
-      mesh.updateMatrixWorld(true);
-    }
-
-    let pickedObject: THREE.Object3D | null = null;
-    let pickedBy: "raycast" | "screen-projection" | null = null;
-
-    if (intersections.length > 0) {
-      pickedObject = intersections[0].object;
-      pickedBy = "raycast";
+    if (result?.type === "property") {
+      setPropertyPopup(result.popup);
     } else {
-      const projectedHit = pickMeshByProjectedCenter(
-        selectableMeshesRef.current,
-        camera,
-        event.clientX - rect.left,
-        event.clientY - rect.top,
-        rect.width,
-        rect.height
-      );
-      if (projectedHit) {
-        pickedObject = projectedHit;
-        pickedBy = "screen-projection";
-      }
-    }
-
-    if (!pickedObject) {
-      console.log("Clicked object: none");
       setPropertyPopup(null);
-      return;
     }
-
-    const meshName = pickedObject.name || "(no name)";
-    const details = getPropertyDetailsForMesh(meshName);
-
-    console.log("Clicked object:", {
-      name: meshName,
-      type: pickedObject.type,
-      uuid: pickedObject.uuid,
-      method: pickedBy,
-    });
-
-    if (!details) {
-      setPropertyPopup(null);
-      return;
-    }
-
-    setPropertyPopup({
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
-      meshName,
-      details,
-    });
   };
 
   const rotateMap = (deltaDegrees: number) => {
@@ -638,10 +313,10 @@ export default function GoogleMap3D() {
   };
 
   const setModelHeading = (degrees: number) => {
-    const pivot = pivotRef.current;
-    if (!pivot) return;
+    const loaded = currentModelRef.current;
+    if (!loaded) return;
     const normalized = ((degrees % 360) + 360) % 360;
-    pivot.rotation.z = THREE.MathUtils.degToRad(normalized);
+    modelManagerRef.current.setHeading(loaded, normalized);
     setModelHeadingDeg(normalized);
     setModelConfig(prev => {
       const updated = prev ? { ...prev, heading: normalized } : prev;
@@ -905,7 +580,10 @@ export default function GoogleMap3D() {
 
       {/* Completely separate canvas/renderer/camera — mounted only while open. */}
       {apartmentOpen && (
-        <ModelViewer modelUrl="/model/appartement.glb" onBack={() => setApartmentOpen(false)} />
+        <ModelViewerOverlay
+          modelUrl="/model/appartement.glb"
+          onBack={() => setApartmentOpen(false)}
+        />
       )}
     </div>
   );
