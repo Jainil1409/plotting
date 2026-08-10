@@ -2,7 +2,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
-import ApartmentViewer from "./Apartmentviewer";
+import ModelViewer from "@/src/components/ModelViewer";
 
 const GOOGLE_MAPS_API_KEY = "AIzaSyBCswT9ODeUU9ByGUjbRg1KzV-nUF3BFkU"; // demo key
 
@@ -227,7 +227,7 @@ export default function GoogleMap3D() {
   const [compassOpen, setCompassOpen] = useState(false);
 
   // The ONLY thing hotspot clicks do now: flip this. It mounts/unmounts
-  // <ApartmentViewer>, a completely independent canvas — no scene swapping
+  // <ModelViewer>, a completely independent canvas — no scene swapping
   // inside the map's own WebGLOverlayView anymore.
   const [apartmentOpen, setApartmentOpen] = useState(false);
 
@@ -481,7 +481,7 @@ export default function GoogleMap3D() {
       return;
     }
 
-    // Hotspot click — opens the standalone apartment viewer overlay.
+    // Hotspot click — opens the standalone model viewer overlay.
     // No model swapping in THIS scene happens anymore.
     // if (hotspotRef.current) {
     //   const hotspotHits = raycasterRef.current.intersectObject(hotspotRef.current.core, true);
@@ -521,7 +521,7 @@ export default function GoogleMap3D() {
       console.log("Hotspot hits:", hotspotHits.length, "| Screen hit:", isScreenHit);
 
       if (hotspotHits.length > 0 || isScreenHit) {
-        console.log("Hotspot clicked -> Opening ApartmentViewer");
+        console.log("Hotspot clicked -> Opening ModelViewer");
         setApartmentOpen(true);
         return;
       }
@@ -904,7 +904,9 @@ export default function GoogleMap3D() {
       <div ref={mapDiv} onClick={handleScenePick} style={{ width: "100%", height: "100%", cursor: placementMode ? "crosshair" : "default" }} />
 
       {/* Completely separate canvas/renderer/camera — mounted only while open. */}
-      {apartmentOpen && <ApartmentViewer onBack={() => setApartmentOpen(false)} />}
+      {apartmentOpen && (
+        <ModelViewer modelUrl="/model/appartement.glb" onBack={() => setApartmentOpen(false)} />
+      )}
     </div>
   );
 }
