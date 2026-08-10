@@ -47,6 +47,20 @@ export default function ModelViewer({
   const [hotspots, setHotspots] = useState<HotspotConfig[]>(initialHotspots);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  // Refs that stay in sync with state so the pointerdown listener added in
+  // useEffect can always read the CURRENT value (the closure would otherwise
+  // capture a stale value forever).
+  const editModeRef = useRef(false);
+  const selectedIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    editModeRef.current = editMode;
+  }, [editMode]);
+
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+
   useEffect(() => {
     if (!mountRef.current) return;
 
@@ -95,11 +109,13 @@ export default function ModelViewer({
     const handlePointerDown = (event: PointerEvent) => {
       if (!hotspotManager || !cameraController) return;
 
+      // Use the ref so we always read the CURRENT edit-mode value instead of
+      // the stale one captured when the effect first ran.
       const result = hotspotManager.handleClick(
         event,
         viewer.renderer,
         cameraController.camera,
-        editMode
+        editModeRef.current
       );
 
       if (result.type === "navigate") {
@@ -112,6 +128,9 @@ export default function ModelViewer({
       if (result.type === "select" || result.type === "created") {
         if (result.hotspot) {
           setSelectedId(result.hotspot.id);
+        }
+        if (result.type === "select") {
+          hotspotManager.select(result.hotspot.id);
         }
         setHotspots(hotspotManager.getHotspots());
       }
@@ -153,6 +172,11 @@ export default function ModelViewer({
     };
   }, [modelUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const selectHotspot = (id: string) => {
+    setSelectedId(id);
+    hotspotManagerRef.current?.select(id);
+  };
+
   const renameHotspot = (id: string, label: string) => {
     hotspotManagerRef.current?.rename(id, label);
     setHotspots(hotspotManagerRef.current?.getHotspots() ?? []);
@@ -171,6 +195,7 @@ export default function ModelViewer({
     hotspotManagerRef.current?.delete(id);
     setHotspots(hotspotManagerRef.current?.getHotspots() ?? []);
     setSelectedId(null);
+    hotspotManagerRef.current?.clearSelection();
   };
 
   const exportJSON = () => {
@@ -272,7 +297,7 @@ export default function ModelViewer({
         <HotspotEditorPanel
           hotspots={hotspots}
           selectedId={selectedId}
-          onSelect={setSelectedId}
+          onSelect={selectHotspot}
           onRename={renameHotspot}
           onCapture={captureCamera}
           onDelete={deleteHotspot}

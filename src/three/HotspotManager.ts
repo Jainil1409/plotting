@@ -5,6 +5,9 @@ export type ClickResult =
   | { type: "select" | "navigate" | "created"; hotspot: HotspotConfig }
   | { type: "nothing" };
 
+const UNSELECTED_COLOR = 0x00aaff;
+const SELECTED_COLOR = 0xffaa00;
+
 export class HotspotManager {
   private model: THREE.Object3D;
   private raycaster = new THREE.Raycaster();
@@ -12,6 +15,7 @@ export class HotspotManager {
   private hotspotObjects: THREE.Object3D[] = [];
   private hotspots: HotspotConfig[];
   private selectedId: string | null = null;
+  private hotspotMeshes = new Map<string, THREE.Mesh>();
 
   constructor(model: THREE.Object3D, initialHotspots: HotspotConfig[] = []) {
     this.model = model;
@@ -40,7 +44,7 @@ export class HotspotManager {
 
     const mesh = new THREE.Mesh(
       new THREE.SphereGeometry(0.18, 20, 20),
-      new THREE.MeshBasicMaterial({ color: 0x00aaff })
+      new THREE.MeshBasicMaterial({ color: UNSELECTED_COLOR })
     );
     mesh.name = `hotspot-${config.id}`;
     mesh.userData.roomId = config.id;
@@ -48,6 +52,16 @@ export class HotspotManager {
     anchor.add(mesh);
 
     this.hotspotObjects.push(mesh);
+    this.hotspotMeshes.set(config.id, mesh);
+  }
+
+  // Updates the sphere color so the currently selected hotspot is visually
+  // distinct from the rest. Called on every selection change.
+  private updateSelectionVisuals() {
+    this.hotspotMeshes.forEach((mesh, id) => {
+      const material = mesh.material as THREE.MeshBasicMaterial;
+      material.color.setHex(id === this.selectedId ? SELECTED_COLOR : UNSELECTED_COLOR);
+    });
   }
 
   getHotspots(): HotspotConfig[] {
@@ -65,10 +79,12 @@ export class HotspotManager {
 
   select(id: string) {
     this.selectedId = id;
+    this.updateSelectionVisuals();
   }
 
   clearSelection() {
     this.selectedId = null;
+    this.updateSelectionVisuals();
   }
 
   getSelectedHotspot(): HotspotConfig | null {
@@ -98,6 +114,7 @@ export class HotspotManager {
 
       if (editMode) {
         this.selectedId = roomId;
+        this.updateSelectionVisuals();
         return { type: "select", hotspot };
       }
 
@@ -147,6 +164,7 @@ export class HotspotManager {
     this.hotspots = [...this.hotspots, newHotspot];
     this.createHotspotObject(newHotspot);
     this.selectedId = id;
+    this.updateSelectionVisuals();
 
     return { type: "created", hotspot: newHotspot };
   }
@@ -181,10 +199,12 @@ export class HotspotManager {
     }
 
     this.hotspotObjects = this.hotspotObjects.filter((obj) => obj.userData.roomId !== id);
+    this.hotspotMeshes.delete(id);
     this.hotspots = this.hotspots.filter((h) => h.id !== id);
 
     if (this.selectedId === id) {
       this.selectedId = null;
+      this.updateSelectionVisuals();
     }
   }
 
@@ -211,6 +231,7 @@ export class HotspotManager {
 
   dispose() {
     this.hotspotObjects = [];
+    this.hotspotMeshes.clear();
     this.hotspots = [];
     this.selectedId = null;
   }
