@@ -10,6 +10,7 @@ interface Props {
   onCapture: (id: string) => void;
   onDelete: (id: string) => void;
   onExport: () => void;
+  onClose: () => void;
 }
 
 type IconProps = { size?: number };
@@ -86,6 +87,23 @@ const DownloadIcon = ({ size = 14 }: IconProps) => (
   </svg>
 );
 
+const CloseIcon = ({ size = 14 }: IconProps) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={2}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
+    <line x1="18" y1="6" x2="6" y2="18" />
+    <line x1="6" y1="6" x2="18" y2="18" />
+  </svg>
+);
+
 const formatVec = (v: number) => (Math.abs(v) < 0.001 ? "0" : v.toFixed(2));
 
 export default function HotspotEditorPanel({
@@ -96,6 +114,7 @@ export default function HotspotEditorPanel({
   onCapture,
   onDelete,
   onExport,
+  onClose,
 }: Props) {
   const selectedHotspot = hotspots.find((hotspot) => hotspot.id === selectedId) ?? null;
 
@@ -104,13 +123,13 @@ export default function HotspotEditorPanel({
       <style>{`
         .hs-panel {
           position: absolute;
-          bottom: 20px;
-          left: 50%;
-          transform: translateX(-50%);
+          top: 0;
+          right: 0;
+          bottom: 0;
           z-index: 60;
-          width: min(920px, calc(100% - 32px));
+          width: min(380px, 100%);
           padding: 1px;
-          border-radius: 20px;
+          border-radius: 0;
           background: linear-gradient(
             180deg,
             rgba(148,163,184,0.28),
@@ -118,20 +137,20 @@ export default function HotspotEditorPanel({
             rgba(148,163,184,0.03)
           );
           box-shadow:
-            0 18px 50px rgba(0,0,0,0.55),
-            0 4px 14px rgba(0,0,0,0.3);
+            -18px 0 50px rgba(0,0,0,0.55),
+            -4px 0 14px rgba(0,0,0,0.3);
           font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
             "Helvetica Neue", Arial, sans-serif;
           font-size: 13px;
           color: #e2e8f0;
           backdrop-filter: blur(20px) saturate(140%);
           -webkit-backdrop-filter: blur(20px) saturate(140%);
-          animation: hs-rise 0.25s ease-out;
+          animation: hs-slide-in 0.28s ease-out;
         }
 
-        @keyframes hs-rise {
-          from { opacity: 0; transform: translateX(-50%) translateY(12px); }
-          to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+        @keyframes hs-slide-in {
+          from { opacity: 0; transform: translateX(24px); }
+          to   { opacity: 1; transform: translateX(0); }
         }
 
         .hs-inner, .hs-inner * { box-sizing: border-box; }
@@ -139,11 +158,22 @@ export default function HotspotEditorPanel({
         .hs-inner {
           display: flex;
           flex-direction: column;
-          gap: 14px;
-          padding: 18px 20px;
-          border-radius: 19px;
-          background: linear-gradient(180deg, rgba(18,27,48,0.96), rgba(10,16,32,0.96));
+          gap: 16px;
+          height: 100%;
+          padding: 20px;
+          border-radius: 0;
+          background: linear-gradient(180deg, rgba(18,27,48,0.97), rgba(10,16,32,0.97));
+          overflow-y: auto;
+          scrollbar-width: thin;
+          scrollbar-color: rgba(148,163,184,0.35) transparent;
         }
+        .hs-inner::-webkit-scrollbar { width: 6px; }
+        .hs-inner::-webkit-scrollbar-track { background: transparent; }
+        .hs-inner::-webkit-scrollbar-thumb {
+          background: rgba(148,163,184,0.3);
+          border-radius: 999px;
+        }
+        .hs-inner::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.5); }
 
         /* Header */
         .hs-header {
@@ -205,27 +235,23 @@ export default function HotspotEditorPanel({
           box-shadow: 0 0 8px rgba(56,189,248,0.8);
         }
 
-        /* Body layout */
+        /* Body layout - stacked vertically for sidebar */
         .hs-body {
           display: flex;
+          flex-direction: column;
           gap: 20px;
-          flex-wrap: wrap;
         }
         .hs-col-list {
-          flex: 1 1 240px;
-          min-width: 220px;
           display: flex;
           flex-direction: column;
           gap: 8px;
         }
         .hs-col-details {
-          flex: 1 1 300px;
-          min-width: 260px;
           display: flex;
           flex-direction: column;
           gap: 10px;
-          padding-left: 20px;
-          border-left: 1px solid rgba(255,255,255,0.06);
+          padding-top: 16px;
+          border-top: 1px solid rgba(255,255,255,0.08);
         }
 
         .hs-eyebrow {
@@ -238,7 +264,7 @@ export default function HotspotEditorPanel({
 
         /* Hotspot list */
         .hs-scroll {
-          max-height: 152px;
+          max-height: 200px;
           overflow-y: auto;
           display: flex;
           flex-direction: column;
@@ -447,6 +473,29 @@ export default function HotspotEditorPanel({
           color: #f1f5f9;
         }
 
+        .hs-btn-close {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 30px;
+          height: 30px;
+          padding: 0;
+          border-radius: 9px;
+          border: 1px solid rgba(255,255,255,0.1);
+          background: rgba(255,255,255,0.05);
+          color: #94a3b8;
+          cursor: pointer;
+          transition:
+            background 0.15s ease,
+            border-color 0.15s ease,
+            color 0.15s ease;
+        }
+        .hs-btn-close:hover {
+          background: rgba(255,255,255,0.1);
+          border-color: rgba(255,255,255,0.18);
+          color: #f1f5f9;
+        }
+
         .hs-actions {
           display: flex;
           gap: 8px;
@@ -454,13 +503,13 @@ export default function HotspotEditorPanel({
           margin-top: 2px;
         }
 
-        @media (max-width: 640px) {
-          .hs-col-details {
-            padding-left: 0;
-            border-left: none;
-            padding-top: 12px;
-            border-top: 1px solid rgba(255,255,255,0.06);
-          }
+        .hs-export-row {
+          margin-top: auto;
+          padding-top: 16px;
+          border-top: 1px solid rgba(255,255,255,0.08);
+        }
+        .hs-export-row .hs-btn {
+          width: 100%;
         }
       `}</style>
 
@@ -482,8 +531,14 @@ export default function HotspotEditorPanel({
                 <span className="hs-badge-dot" />
                 {hotspots.length} placed
               </span>
-              <button type="button" className="hs-btn hs-btn-ghost" onClick={onExport}>
-                <DownloadIcon /> Export JSON
+              <button
+                type="button"
+                className="hs-btn-close"
+                onClick={onClose}
+                title="Close editor"
+                aria-label="Close hotspot editor"
+              >
+                <CloseIcon size={16} />
               </button>
             </div>
           </div>
@@ -572,6 +627,13 @@ export default function HotspotEditorPanel({
                 </div>
               </div>
             ) : null}
+          </div>
+
+          {/* Export row pinned to bottom */}
+          <div className="hs-export-row">
+            <button type="button" className="hs-btn hs-btn-ghost" onClick={onExport}>
+              <DownloadIcon /> Export JSON
+            </button>
           </div>
         </div>
       </div>

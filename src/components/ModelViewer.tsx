@@ -302,6 +302,7 @@ export default function ModelViewer({
           onCapture={captureCamera}
           onDelete={deleteHotspot}
           onExport={exportJSON}
+          onClose={() => setEditMode(false)}
         />
       )}
 
