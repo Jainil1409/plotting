@@ -434,6 +434,8 @@ export default function ApartmentViewer({ onBack }: ApartmentViewerProps) {
             setSelectedId(id);
           };
 
+          if (!renderer) return;
+
           pointerDownHandler = handlePointerDown;
           renderer.domElement.addEventListener("pointerdown", handlePointerDown);
 
