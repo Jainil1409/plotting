@@ -13,11 +13,13 @@ export class HotspotManager {
   createHotspot(config: HotspotConfig): HotspotHandle {
     const group = new THREE.Group();
 
-    group.position.set(
+    const originalPosition = new THREE.Vector3(
       config.position.x,
       config.position.y,
       config.position.z
     );
+
+    group.position.copy(originalPosition);
 
     group.userData.type = "hotspot";
     group.userData.hotspotId = config.id;
@@ -76,6 +78,7 @@ export class HotspotManager {
       core,
       ring,
       nextModelUrl: config.nextModelUrl,
+      originalPosition,
     };
 
     this.hotspots.set(config.id, handle);
@@ -210,14 +213,26 @@ export class HotspotManager {
 
       hotspot.core.scale.setScalar(1 + Math.sin(time * 3) * 0.12);
 
+      const parent = hotspot.group.parent;
+      if (!parent) return;
+
+      // ── Keep the hotspot at a FIXED world position regardless of the
+      //    model's heading rotation. The hotspot's local position is
+      //    counter-rotated around the parent's origin so that the world
+      //    position stays the same even when the pivot rotates. ──
+      const parentWorldQuat = new THREE.Quaternion();
+      parent.getWorldQuaternion(parentWorldQuat);
+
+      // Counter-rotate the local position around the parent's origin.
+      // The original local position was defined in the model's un-rotated
+      // frame; applying the inverse parent rotation brings it back to the
+      // world frame the hotspot was originally placed in.
+      hotspot.group.position
+        .copy(hotspot.originalPosition)
+        .applyQuaternion(parentWorldQuat.clone().invert());
+
       // Counter-rotate so hotspot stays upright regardless of parent rotation
-      if (hotspot.group.parent) {
-        const parentWorldQuat = new THREE.Quaternion();
-
-        hotspot.group.parent.getWorldQuaternion(parentWorldQuat);
-
-        hotspot.group.quaternion.copy(parentWorldQuat.clone().invert());
-      }
+      hotspot.group.quaternion.copy(parentWorldQuat.clone().invert());
     });
   }
 

@@ -18,4 +18,7 @@ export type HotspotHandle = {
   core: THREE.Mesh;
   ring: THREE.Mesh;
   nextModelUrl: string;
+  /** Original local position (before any parent rotation) — used to keep
+   *  the hotspot at a fixed world position when the model heading changes. */
+  originalPosition: THREE.Vector3;
 };
