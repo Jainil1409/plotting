@@ -15,96 +15,38 @@ interface Props {
 
 type IconProps = { size?: number };
 
-const PinIcon = ({ size = 14 }: IconProps) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={2}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 1 1 16 0Z" />
-    <circle cx="12" cy="10" r="3" />
-  </svg>
-);
-
-const CameraIcon = ({ size = 14 }: IconProps) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={2}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
-    <circle cx="12" cy="13" r="3" />
+const LensIcon = ({ size = 14 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="2.5" y="6.5" width="19" height="12.5" rx="2" />
+    <path d="M8 6.5 9.4 4h5.2L16 6.5" />
+    <circle cx="12" cy="12.5" r="3.4" />
   </svg>
 );
 
 const TrashIcon = ({ size = 14 }: IconProps) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={2}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="M3 6h18" />
-    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
-    <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-    <line x1="10" y1="11" x2="10" y2="17" />
-    <line x1="14" y1="11" x2="14" y2="17" />
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M3.5 6.5h17" />
+    <path d="M18 6.5v13a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 19.5v-13" />
+    <path d="M9 6.5V4.5A1.5 1.5 0 0 1 10.5 3h3A1.5 1.5 0 0 1 15 4.5v2" />
   </svg>
 );
 
-const DownloadIcon = ({ size = 14 }: IconProps) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={2}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-    <polyline points="7 10 12 15 17 10" />
-    <line x1="12" y1="15" x2="12" y2="3" />
+const DismissIcon = ({ size = 14 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" aria-hidden="true">
+    <line x1="16.5" y1="7.5" x2="7.5" y2="16.5" />
+    <line x1="7.5" y1="7.5" x2="16.5" y2="16.5" />
   </svg>
 );
 
-const CloseIcon = ({ size = 14 }: IconProps) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={2}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <line x1="18" y1="6" x2="6" y2="18" />
-    <line x1="6" y1="6" x2="18" y2="18" />
+const ExportIcon = ({ size = 14 }: IconProps) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 3v12" />
+    <path d="M7.5 10.5 12 15l4.5-4.5" />
+    <path d="M4.5 17.5v2A1.5 1.5 0 0 0 6 21h12a1.5 1.5 0 0 0 1.5-1.5v-2" />
   </svg>
 );
 
-const formatVec = (v: number) => (Math.abs(v) < 0.001 ? "0" : v.toFixed(2));
+const formatVec = (v: number) => (Math.abs(v) < 0.001 ? "0.00" : v.toFixed(2));
 
 export default function HotspotEditorPanel({
   hotspots,
@@ -117,522 +59,328 @@ export default function HotspotEditorPanel({
   onClose,
 }: Props) {
   const selectedHotspot = hotspots.find((hotspot) => hotspot.id === selectedId) ?? null;
+  const total = hotspots.length;
 
   return (
     <>
       <style>{`
-        .hs-panel {
+        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Work+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+        .ed-panel {
           position: absolute;
           top: 0;
           right: 0;
           bottom: 0;
           z-index: 60;
-          width: min(380px, 100%);
-          padding: 1px;
-          border-radius: 0;
-          background: linear-gradient(
-            180deg,
-            rgba(148,163,184,0.28),
-            rgba(148,163,184,0.08) 35%,
-            rgba(148,163,184,0.03)
-          );
-          box-shadow:
-            -18px 0 50px rgba(0,0,0,0.55),
-            -4px 0 14px rgba(0,0,0,0.3);
-          font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-            "Helvetica Neue", Arial, sans-serif;
+          width: min(340px, 100%);
+          background: #f6f7f5;
+          border-left: 1px solid #e2e4e1;
+          box-shadow: -16px 0 36px rgba(15,20,18,0.14);
+          font-family: "Work Sans", -apple-system, BlinkMacSystemFont, sans-serif;
           font-size: 13px;
-          color: #e2e8f0;
-          backdrop-filter: blur(20px) saturate(140%);
-          -webkit-backdrop-filter: blur(20px) saturate(140%);
-          animation: hs-slide-in 0.28s ease-out;
+          color: #14161a;
         }
 
-        @keyframes hs-slide-in {
-          from { opacity: 0; transform: translateX(24px); }
+        @media (prefers-reduced-motion: no-preference) {
+          .ed-panel { animation: ed-slide-in 0.22s cubic-bezier(0.2, 0.7, 0.3, 1); }
+        }
+        @keyframes ed-slide-in {
+          from { opacity: 0; transform: translateX(14px); }
           to   { opacity: 1; transform: translateX(0); }
         }
 
-        .hs-inner, .hs-inner * { box-sizing: border-box; }
-
-        .hs-inner {
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-          height: 100%;
-          padding: 20px;
-          border-radius: 0;
-          background: linear-gradient(180deg, rgba(18,27,48,0.97), rgba(10,16,32,0.97));
-          overflow-y: auto;
-          scrollbar-width: thin;
-          scrollbar-color: rgba(148,163,184,0.35) transparent;
+        @media (max-width: 640px) {
+          .ed-panel {
+            top: auto; left: 0; right: 0; bottom: 0;
+            width: 100%; max-height: 70vh;
+            border-left: none;
+            border-top: 1px solid #e2e4e1;
+            border-radius: 16px 16px 0 0;
+          }
         }
-        .hs-inner::-webkit-scrollbar { width: 6px; }
-        .hs-inner::-webkit-scrollbar-track { background: transparent; }
-        .hs-inner::-webkit-scrollbar-thumb {
-          background: rgba(148,163,184,0.3);
-          border-radius: 999px;
-        }
-        .hs-inner::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.5); }
 
-        /* Header */
-        .hs-header {
+        .ed-inner, .ed-inner * { box-sizing: border-box; }
+        .ed-inner { display: flex; flex-direction: column; height: 100%; overflow-y: auto; }
+
+        /* ---- Header ---- */
+        .ed-header {
+          position: relative;
           display: flex;
           align-items: flex-start;
           justify-content: space-between;
-          gap: 12px;
-          flex-wrap: wrap;
+          gap: 10px;
+          padding: 18px 18px 14px;
         }
-        .hs-title-group { display: flex; align-items: center; gap: 11px; }
-        .hs-title-icon {
+        .ed-title {
+          font-family: "Sora", sans-serif;
+          font-weight: 700;
+          font-size: 16px;
+          letter-spacing: -0.01em;
+          color: #14161a;
+        }
+        .ed-subtitle { font-size: 12px; color: #6b7280; margin-top: 3px; }
+        .ed-header-right { display: flex; align-items: center; gap: 8px; }
+        .ed-count {
+          font-family: "JetBrains Mono", monospace;
+          font-size: 11px;
+          font-weight: 500;
+          color: #0f7a72;
+          background: rgba(15,122,114,0.1);
+          padding: 3px 8px;
+          border-radius: 6px;
+          white-space: nowrap;
+        }
+        .ed-close {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          width: 34px;
-          height: 34px;
-          border-radius: 11px;
-          background: linear-gradient(135deg, rgba(56,189,248,0.28), rgba(14,165,233,0.12));
-          border: 1px solid rgba(56,189,248,0.35);
-          color: #7dd3fc;
-          flex-shrink: 0;
+          width: 26px;
+          height: 26px;
+          border-radius: 7px;
+          border: none;
+          background: transparent;
+          color: #6b7280;
+          cursor: pointer;
+          transition: background 0.12s ease, color 0.12s ease;
         }
-        .hs-title {
-          font-size: 14.5px;
-          font-weight: 700;
-          color: #f1f5f9;
-          letter-spacing: 0.2px;
-        }
-        .hs-subtitle {
-          font-size: 12px;
-          color: #94a3b8;
-          margin-top: 2px;
-        }
-        .hs-header-actions {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          flex-wrap: wrap;
-        }
-        .hs-badge {
-          display: inline-flex;
-          align-items: center;
-          gap: 7px;
-          padding: 5px 12px;
-          border-radius: 999px;
-          background: rgba(56,189,248,0.12);
-          border: 1px solid rgba(56,189,248,0.25);
-          color: #7dd3fc;
-          font-size: 11px;
-          font-weight: 700;
-          letter-spacing: 0.02em;
-          white-space: nowrap;
-        }
-        .hs-badge-dot {
-          width: 6px;
-          height: 6px;
-          border-radius: 50%;
-          background: #38bdf8;
-          box-shadow: 0 0 8px rgba(56,189,248,0.8);
-        }
+        .ed-close:hover { background: #e9ebe8; color: #14161a; }
+        .ed-close:focus-visible { outline: 2px solid #0f7a72; outline-offset: 2px; }
 
-        /* Body layout - stacked vertically for sidebar */
-        .hs-body {
-          display: flex;
-          flex-direction: column;
-          gap: 20px;
-        }
-        .hs-col-list {
-          display: flex;
-          flex-direction: column;
-          gap: 8px;
-        }
-        .hs-col-details {
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-          padding-top: 16px;
-          border-top: 1px solid rgba(255,255,255,0.08);
-        }
+        .ed-divider { height: 1px; background: #e2e4e1; margin: 0 18px; }
 
-        .hs-eyebrow {
-          font-size: 10.5px;
-          font-weight: 700;
-          letter-spacing: 0.12em;
+        /* ---- Body ---- */
+        .ed-body { flex: 1; display: flex; flex-direction: column; gap: 18px; padding: 16px 18px; }
+
+        .ed-eyebrow {
+          font-family: "JetBrains Mono", monospace;
+          font-size: 10px;
+          font-weight: 500;
+          letter-spacing: 0.08em;
           text-transform: uppercase;
-          color: #64748b;
+          color: #6b7280;
+          margin-bottom: 10px;
         }
 
-        /* Hotspot list */
-        .hs-scroll {
-          max-height: 200px;
-          overflow-y: auto;
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
-          padding-right: 4px;
-          scrollbar-width: thin;
-          scrollbar-color: rgba(148,163,184,0.35) transparent;
+        /* ---- Log: numbered dots on a connecting path line ---- */
+        .ed-log { position: relative; display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; }
+        .ed-log-line {
+          position: absolute;
+          left: 15px;
+          top: 18px;
+          bottom: 18px;
+          width: 1.5px;
+          background: #dcdfdb;
         }
-        .hs-scroll::-webkit-scrollbar { width: 6px; }
-        .hs-scroll::-webkit-scrollbar-track { background: transparent; }
-        .hs-scroll::-webkit-scrollbar-thumb {
-          background: rgba(148,163,184,0.3);
-          border-radius: 999px;
-        }
-        .hs-scroll::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.5); }
-
-        .hs-list-item {
+        .ed-row {
+          position: relative;
           display: flex;
           align-items: center;
           gap: 10px;
           width: 100%;
-          padding: 8px 10px;
-          border: 1px solid transparent;
-          border-radius: 10px;
-          background: rgba(255,255,255,0.03);
-          color: #cbd5e1;
-          font-size: 13px;
+          padding: 8px 10px 8px 4px;
+          border: none;
+          border-radius: 8px;
+          background: transparent;
+          color: #14161a;
           font-family: inherit;
+          font-size: 13px;
           text-align: left;
           cursor: pointer;
-          transition:
-            background 0.15s ease,
-            border-color 0.15s ease,
-            color 0.15s ease;
+          transition: background 0.12s ease;
         }
-        .hs-list-item:hover {
-          background: rgba(255,255,255,0.07);
-          color: #f1f5f9;
-        }
-        .hs-list-item:focus-visible {
-          outline: 2px solid rgba(56,189,248,0.5);
-          outline-offset: 1px;
-        }
-        .hs-list-item.is-selected {
-          background: linear-gradient(90deg, rgba(56,189,248,0.16), rgba(56,189,248,0.05));
-          border-color: rgba(56,189,248,0.35);
-          color: #f8fafc;
-        }
-        .hs-list-index {
-          display: inline-flex;
+        .ed-row:hover { background: #eceeeb; }
+        .ed-row:focus-visible { outline: 2px solid #0f7a72; outline-offset: -2px; }
+        .ed-row.is-selected { background: #ffffff; box-shadow: 0 1px 2px rgba(15,20,18,0.08), 0 0 0 1px #e2e4e1; }
+
+        .ed-dot {
+          position: relative;
+          z-index: 1;
+          flex-shrink: 0;
+          width: 32px;
+          height: 32px;
+          border-radius: 50%;
+          display: flex;
           align-items: center;
           justify-content: center;
-          width: 24px;
-          height: 24px;
-          border-radius: 7px;
-          background: rgba(255,255,255,0.06);
-          border: 1px solid rgba(255,255,255,0.08);
+          background: #ffffff;
+          border: 1.5px solid #dcdfdb;
+          font-family: "JetBrains Mono", monospace;
           font-size: 11px;
           font-weight: 600;
-          color: #94a3b8;
-          flex-shrink: 0;
+          color: #6b7280;
         }
-        .hs-list-item.is-selected .hs-list-index {
-          background: rgba(56,189,248,0.25);
-          border-color: rgba(56,189,248,0.4);
-          color: #7dd3fc;
-        }
-        .hs-list-label {
-          flex: 1;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-        }
+        .ed-row.is-selected .ed-dot { border-color: #0f7a72; color: #0f7a72; background: rgba(15,122,114,0.08); }
 
-        /* Empty state */
-        .hs-empty {
-          padding: 12px 14px;
+        .ed-row-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+        .ed-row.is-selected .ed-row-label { color: #0f7a72; }
+
+        .ed-empty {
+          padding: 14px 12px;
+          border: 1px dashed #dcdfdb;
           border-radius: 10px;
-          border: 1px dashed rgba(255,255,255,0.12);
-          background: rgba(255,255,255,0.02);
-          color: #94a3b8;
+          color: #6b7280;
           font-size: 12.5px;
           line-height: 1.55;
         }
 
-        /* Editor fields */
-        .hs-field {
-          display: flex;
-          flex-direction: column;
-          gap: 5px;
-        }
-        .hs-field-label {
-          font-size: 11px;
-          font-weight: 600;
-          color: #94a3b8;
-          letter-spacing: 0.03em;
-        }
-        .hs-input {
+        /* ---- Detail card ---- */
+        .ed-card { background: #ffffff; border: 1px solid #e2e4e1; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
+
+        .ed-field { display: flex; flex-direction: column; gap: 5px; }
+        .ed-field-label { font-family: "JetBrains Mono", monospace; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: #6b7280; }
+        .ed-input {
           width: 100%;
-          padding: 9px 12px;
-          border-radius: 10px;
-          border: 1px solid rgba(255,255,255,0.12);
-          background: rgba(255,255,255,0.04);
-          color: #e2e8f0;
-          font-size: 13px;
-          font-family: inherit;
-          color-scheme: dark;
+          padding: 8px 10px;
+          border: 1px solid #e2e4e1;
+          border-radius: 8px;
+          background: #f6f7f5;
+          color: #14161a;
+          font-family: "Sora", sans-serif;
+          font-size: 13.5px;
+          font-weight: 500;
           outline: none;
-          transition:
-            border-color 0.15s ease,
-            box-shadow 0.15s ease,
-            background 0.15s ease;
+          transition: border-color 0.12s ease, background 0.12s ease;
         }
-        .hs-input:hover { background: rgba(255,255,255,0.06); }
-        .hs-input:focus {
-          border-color: rgba(56,189,248,0.6);
-          box-shadow: 0 0 0 3px rgba(56,189,248,0.15);
-          background: rgba(255,255,255,0.05);
-        }
-        .hs-input::placeholder { color: #64748b; }
+        .ed-input:focus { border-color: #0f7a72; background: #ffffff; }
+        .ed-input::placeholder { color: #9aa0a6; font-weight: 400; }
 
-        /* Coordinate readout */
-        .hs-coords {
-          display: flex;
-          gap: 6px;
-          flex-wrap: wrap;
-        }
-        .hs-coord {
+        .ed-coords { display: flex; gap: 6px; flex-wrap: wrap; }
+        .ed-coord {
           display: inline-flex;
-          align-items: center;
-          gap: 5px;
-          padding: 4px 9px;
-          border-radius: 7px;
-          background: rgba(255,255,255,0.04);
-          border: 1px solid rgba(255,255,255,0.07);
-          font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-          font-size: 11px;
-          font-variant-numeric: tabular-nums;
-          color: #94a3b8;
+          align-items: baseline;
+          gap: 4px;
+          padding: 4px 8px;
+          border-radius: 6px;
+          background: #f6f7f5;
+          font-family: "JetBrains Mono", monospace;
+          font-size: 11.5px;
+          color: #14161a;
         }
-        .hs-coord em {
-          font-style: normal;
-          font-weight: 700;
-          color: #64748b;
-        }
+        .ed-coord-axis { color: #9aa0a6; font-weight: 500; }
 
-        /* Buttons */
-        .hs-btn {
+        .ed-actions { display: flex; gap: 8px; }
+        .ed-btn {
           display: inline-flex;
           align-items: center;
           justify-content: center;
-          gap: 7px;
-          padding: 8px 14px;
-          border-radius: 10px;
-          border: 1px solid transparent;
+          gap: 6px;
+          padding: 9px 12px;
+          border-radius: 8px;
+          border: none;
+          font-family: "Work Sans", sans-serif;
           font-size: 12.5px;
           font-weight: 600;
-          font-family: inherit;
-          letter-spacing: 0.2px;
-          white-space: nowrap;
           cursor: pointer;
-          transition:
-            background 0.15s ease,
-            border-color 0.15s ease,
-            box-shadow 0.15s ease,
-            transform 0.05s ease;
+          transition: background 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
         }
-        .hs-btn:active { transform: translateY(1px); }
-        .hs-btn:focus-visible {
-          outline: 2px solid rgba(56,189,248,0.6);
-          outline-offset: 2px;
-        }
+        .ed-btn:focus-visible { outline: 2px solid #0f7a72; outline-offset: 2px; }
 
-        .hs-btn-primary {
-          background: linear-gradient(180deg, #38bdf8, #0ea5e9);
-          border-color: rgba(125,211,252,0.3);
-          color: #052033;
-          box-shadow: 0 2px 10px rgba(14,165,233,0.35),
-            inset 0 1px 0 rgba(255,255,255,0.25);
-        }
-        .hs-btn-primary:hover {
-          background: linear-gradient(180deg, #4cc3fa, #21aceb);
-          box-shadow: 0 4px 16px rgba(14,165,233,0.45),
-            inset 0 1px 0 rgba(255,255,255,0.3);
-        }
+        .ed-btn-primary { flex: 1; background: #0f7a72; color: #ffffff; }
+        .ed-btn-primary:hover { background: #0c645e; }
 
-        .hs-btn-danger {
-          background: rgba(220,60,60,0.14);
-          border-color: rgba(248,113,113,0.28);
-          color: #fca5a5;
-        }
-        .hs-btn-danger:hover {
-          background: rgba(220,60,60,0.26);
-          border-color: rgba(248,113,113,0.5);
-          color: #fecaca;
-        }
+        .ed-btn-danger { background: transparent; color: #b3261e; padding: 9px 10px; }
+        .ed-btn-danger:hover { background: rgba(179,38,30,0.08); }
 
-        .hs-btn-ghost {
-          background: rgba(255,255,255,0.05);
-          border-color: rgba(255,255,255,0.1);
-          color: #cbd5e1;
-        }
-        .hs-btn-ghost:hover {
-          background: rgba(255,255,255,0.1);
-          border-color: rgba(255,255,255,0.18);
-          color: #f1f5f9;
-        }
-
-        .hs-btn-close {
-          display: inline-flex;
+        /* ---- Export ---- */
+        .ed-export-wrap { margin-top: auto; padding: 14px 18px 18px; }
+        .ed-btn-export {
+          width: 100%;
+          display: flex;
           align-items: center;
           justify-content: center;
-          width: 30px;
-          height: 30px;
-          padding: 0;
-          border-radius: 9px;
-          border: 1px solid rgba(255,255,255,0.1);
-          background: rgba(255,255,255,0.05);
-          color: #94a3b8;
-          cursor: pointer;
-          transition:
-            background 0.15s ease,
-            border-color 0.15s ease,
-            color 0.15s ease;
-        }
-        .hs-btn-close:hover {
-          background: rgba(255,255,255,0.1);
-          border-color: rgba(255,255,255,0.18);
-          color: #f1f5f9;
-        }
-
-        .hs-actions {
-          display: flex;
           gap: 8px;
-          flex-wrap: wrap;
-          margin-top: 2px;
+          padding: 11px 14px;
+          border-radius: 10px;
+          border: 1px solid #e2e4e1;
+          background: #ffffff;
+          color: #14161a;
+          font-family: "Work Sans", sans-serif;
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: border-color 0.12s ease, box-shadow 0.12s ease;
         }
-
-        .hs-export-row {
-          margin-top: auto;
-          padding-top: 16px;
-          border-top: 1px solid rgba(255,255,255,0.08);
-        }
-        .hs-export-row .hs-btn {
-          width: 100%;
-        }
+        .ed-btn-export:hover { border-color: #0f7a72; box-shadow: 0 1px 2px rgba(15,20,18,0.06); }
+        .ed-btn-export:focus-visible { outline: 2px solid #0f7a72; outline-offset: 2px; }
       `}</style>
 
-      <div className="hs-panel">
-        <div className="hs-inner">
-          {/* Header */}
-          <div className="hs-header">
-            <div className="hs-title-group">
-              <span className="hs-title-icon">
-                <PinIcon size={16} />
-              </span>
-              <div>
-                <div className="hs-title">Hotspot Editor</div>
-                <div className="hs-subtitle">Click the model surface to place a hotspot</div>
-              </div>
+      <div className="ed-panel">
+        <div className="ed-inner">
+          <div className="ed-header">
+            <div>
+              <div className="ed-title">Hotspots</div>
+              <div className="ed-subtitle">Tap the model to mark a point</div>
             </div>
-            <div className="hs-header-actions">
-              <span className="hs-badge">
-                <span className="hs-badge-dot" />
-                {hotspots.length} placed
-              </span>
-              <button
-                type="button"
-                className="hs-btn-close"
-                onClick={onClose}
-                title="Close editor"
-                aria-label="Close hotspot editor"
-              >
-                <CloseIcon size={16} />
+            <div className="ed-header-right">
+              <span className="ed-count">{String(total).padStart(2, "0")}</span>
+              <button type="button" className="ed-close" onClick={onClose} title="Close editor" aria-label="Close hotspot editor">
+                <DismissIcon size={14} />
               </button>
             </div>
           </div>
 
-          {/* Body */}
-          <div className="hs-body">
-            {/* Hotspot list */}
-            <div className="hs-col hs-col-list">
-              <div className="hs-eyebrow">Hotspots</div>
-              {hotspots.length === 0 ? (
-                <div className="hs-empty">
-                  No hotspots yet. Click the model surface to place your first one.
-                </div>
+          <div className="ed-divider" />
+
+          <div className="ed-body">
+            <div>
+              <div className="ed-eyebrow">Points</div>
+              {total === 0 ? (
+                <div className="ed-empty">No points yet. Tap anywhere on the model to add one.</div>
               ) : (
-                <div className="hs-scroll">
+                <div className="ed-log">
+                  <div className="ed-log-line" />
                   {hotspots.map((h, i) => (
                     <button
                       key={h.id}
                       type="button"
-                      className={`hs-list-item${h.id === selectedId ? " is-selected" : ""}`}
+                      className={`ed-row${h.id === selectedId ? " is-selected" : ""}`}
                       onClick={() => onSelect(h.id)}
-                      title={h.label || "Untitled hotspot"}
+                      title={h.label || "Unnamed point"}
                     >
-                      <span className="hs-list-index">{String(i + 1).padStart(2, "0")}</span>
-                      <span className="hs-list-label">{h.label || "Untitled hotspot"}</span>
+                      <span className="ed-dot">{i + 1}</span>
+                      <span className="ed-row-label">{h.label || "Unnamed point"}</span>
                     </button>
                   ))}
                 </div>
               )}
             </div>
 
-            {/* Selection editor */}
             {selectedHotspot ? (
-              <div className="hs-col hs-col-details">
-                <div className="hs-eyebrow">Selected hotspot</div>
-
-                <label className="hs-field">
-                  <span className="hs-field-label">Name</span>
+              <div className="ed-card">
+                <label className="ed-field">
+                  <span className="ed-field-label">Name</span>
                   <input
-                    className="hs-input"
+                    className="ed-input"
                     value={selectedHotspot.label}
                     onChange={(e) => onRename(selectedHotspot.id, e.target.value)}
-                    placeholder="Untitled hotspot"
+                    placeholder="Unnamed point"
                     spellCheck={false}
                   />
                 </label>
 
-                <div className="hs-coords">
-                  <span className="hs-coord">
-                    <em>X</em>
-                    {formatVec(selectedHotspot.position.x)}
-                  </span>
-                  <span className="hs-coord">
-                    <em>Y</em>
-                    {formatVec(selectedHotspot.position.y)}
-                  </span>
-                  <span className="hs-coord">
-                    <em>Z</em>
-                    {formatVec(selectedHotspot.position.z)}
-                  </span>
+                <div className="ed-coords">
+                  <span className="ed-coord"><span className="ed-coord-axis">X</span>{formatVec(selectedHotspot.position.x)}</span>
+                  <span className="ed-coord"><span className="ed-coord-axis">Y</span>{formatVec(selectedHotspot.position.y)}</span>
+                  <span className="ed-coord"><span className="ed-coord-axis">Z</span>{formatVec(selectedHotspot.position.z)}</span>
                 </div>
 
-                <div className="hs-actions">
-                  <button
-                    type="button"
-                    className="hs-btn hs-btn-primary"
-                    onClick={() => onCapture(selectedHotspot.id)}
-                  >
-                    <CameraIcon /> Capture camera
+                <div className="ed-actions">
+                  <button type="button" className="ed-btn ed-btn-primary" onClick={() => onCapture(selectedHotspot.id)}>
+                    <LensIcon size={13} /> Capture camera
                   </button>
-                  <button
-                    type="button"
-                    className="hs-btn hs-btn-danger"
-                    onClick={() => onDelete(selectedHotspot.id)}
-                  >
-                    <TrashIcon /> Delete
+                  <button type="button" className="ed-btn ed-btn-danger" onClick={() => onDelete(selectedHotspot.id)} aria-label="Delete point">
+                    <TrashIcon size={14} />
                   </button>
                 </div>
               </div>
-            ) : hotspots.length > 0 ? (
-              <div className="hs-col hs-col-details">
-                <div className="hs-eyebrow">Selected hotspot</div>
-                <div className="hs-empty">
-                  Select a hotspot from the list to rename it, capture the current camera
-                  view, or delete it.
-                </div>
-              </div>
+            ) : total > 0 ? (
+              <div className="ed-empty">Select a point from the list to rename it, capture the current camera view, or remove it.</div>
             ) : null}
           </div>
 
-          {/* Export row pinned to bottom */}
-          <div className="hs-export-row">
-            <button type="button" className="hs-btn hs-btn-ghost" onClick={onExport}>
-              <DownloadIcon /> Export JSON
+          <div className="ed-export-wrap">
+            <button type="button" className="ed-btn-export" onClick={onExport}>
+              <ExportIcon size={14} /> Export JSON
             </button>
           </div>
         </div>
