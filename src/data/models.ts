@@ -11,14 +11,7 @@ export const MODELS = {
     modelUrl: "/model/appartement.glb",
     scale: 90,
     heading: 0,
-  },
-
-  clubhouse: {
-    id: "clubhouse",
-    modelUrl: "/model/clubhouse.glb",
-    scale: 90,
-    heading: 0,
-  },
+  } 
 } as const;
 
 export type ModelId = keyof typeof MODELS;
