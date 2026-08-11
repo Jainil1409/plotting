@@ -63,10 +63,12 @@ export class ViewerScene {
     // Free every geometry/material/texture — same lesson as
     // disposeObject3D in GoogleMap3D.tsx: Three.js won't do this
     // automatically just because the component unmounts.
-    this.scene.traverse((object: any) => {
-      if (object.geometry) object.geometry.dispose();
+    this.scene.traverse((object) => {
+      const mesh = object as THREE.Mesh;
 
-      const material = object.material;
+      mesh.geometry?.dispose();
+
+      const material = mesh.material;
       if (material) {
         const materials = Array.isArray(material) ? material : [material];
         materials.forEach((mat: THREE.Material) => {

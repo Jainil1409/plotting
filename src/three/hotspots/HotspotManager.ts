@@ -23,6 +23,7 @@ export class HotspotManager {
 
     group.userData.type = "hotspot";
     group.userData.hotspotId = config.id;
+    group.userData.modelInstanceId = config.modelInstanceId;
 
     const core = new THREE.Mesh(
       new THREE.SphereGeometry(1.2, 32, 32),
@@ -74,10 +75,12 @@ export class HotspotManager {
 
     const handle: HotspotHandle = {
       id: config.id,
+      modelInstanceId: config.modelInstanceId,
       group,
       core,
       ring,
-      nextModelUrl: config.nextModelUrl,
+      nextModelId: config.nextModelId,
+      nextModelInstanceId: config.nextModelInstanceId,
       originalPosition,
     };
 
@@ -102,12 +105,24 @@ export class HotspotManager {
     this.hotspots.delete(hotspotId);
   }
 
+  removeHotspotsForModel(modelInstanceId: string) {
+    this.getHotspotsForModel(modelInstanceId).forEach((hotspot) => {
+      this.removeHotspot(hotspot.id);
+    });
+  }
+
   getHotspot(hotspotId: string) {
     return this.hotspots.get(hotspotId) ?? null;
   }
 
   getAllHotspots() {
     return Array.from(this.hotspots.values());
+  }
+
+  getHotspotsForModel(modelInstanceId: string) {
+    return this.getAllHotspots().filter(
+      (hotspot) => hotspot.modelInstanceId === modelInstanceId
+    );
   }
 
   // Detect which hotspot (if any) was clicked, using only userData.

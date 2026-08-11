@@ -10,6 +10,8 @@ export type PropertyDetails = {
 export type PropertyPopup = {
   x: number;
   y: number;
+  modelInstanceId: string;
+  modelId: string;
   meshName: string;
   details: PropertyDetails;
 };
@@ -23,7 +25,7 @@ export class ModelInteractionManager {
 
   constructor(
     private meshes: THREE.Mesh[],
-    private propertyDetails: Record<string, PropertyDetails>
+    private propertyDetails: Record<string, Record<string, PropertyDetails>>
   ) {}
 
   setMeshes(meshes: THREE.Mesh[]) {
@@ -77,7 +79,11 @@ export class ModelInteractionManager {
     }
 
     const meshName = picked.name || "(no name)";
-    const details = this.propertyDetails[meshName];
+    const modelInstanceId = picked.userData.modelInstanceId as string | undefined;
+    const modelId = picked.userData.modelId as string | undefined;
+    const details = modelInstanceId
+      ? this.propertyDetails[modelInstanceId]?.[meshName]
+      : undefined;
 
     if (!details) {
       return { type: "none" };
@@ -90,6 +96,8 @@ export class ModelInteractionManager {
       popup: {
         x: event.clientX - rect.left,
         y: event.clientY - rect.top,
+        modelInstanceId: modelInstanceId ?? "",
+        modelId: modelId ?? "",
         meshName,
         details,
       },

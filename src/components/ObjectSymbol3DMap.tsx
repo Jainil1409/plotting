@@ -1,12 +1,14 @@
 "use client";
 import { useEffect, useRef } from "react";
+import type SceneView from "@arcgis/core/views/SceneView";
 
 export default function ObjectSymbol3DMap() {
   const mapDiv = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    let view: any;
+    let view: SceneView | undefined;
     let canceled = false;
+    const container = mapDiv.current;
 
     (async () => {
       const [Map, SceneView, GraphicsLayer, Graphic, Point, PointSymbol3D, ObjectSymbol3DLayer] = await Promise.all([
@@ -19,12 +21,12 @@ export default function ObjectSymbol3DMap() {
         import("@arcgis/core/symbols/ObjectSymbol3DLayer").then((m) => m.default),
       ]);
 
-      if (canceled || !mapDiv.current) return;
+      if (canceled || !container) return;
 
       const map = new Map({ basemap: "streets", ground: "world-elevation" });
 
       view = new SceneView({
-        container: mapDiv.current,
+        container,
         map,
         camera: { position: { longitude: 72.5714, latitude: 23.0225, z: 500 } },
       });
@@ -69,7 +71,7 @@ export default function ObjectSymbol3DMap() {
     return () => {
       canceled = true;
       view?.destroy();
-      if (mapDiv.current) mapDiv.current.innerHTML = "";
+      if (container) container.innerHTML = "";
     };
   }, []);
 

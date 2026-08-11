@@ -1,19 +1,12 @@
-import { HotspotConfig } from "../three/hotspots/hotspotTypes";
+import type { MapHotspotConfig } from "@/src/types/hotspot";
 
-export const HOTSPOTS: Record<string, HotspotConfig[]> = {
-  house: [
+export const HOTSPOTS: Record<string, MapHotspotConfig[]> = {
+  "house-main": [
     {
       id: "house-entry",
+      modelInstanceId: "house-main",
       position: { x: 3.5, y: 12.0, z: 2.2 },
-      nextModelUrl: "/model/appartement.glb",
-    },
-  ],
-
-  apartment: [
-    {
-      id: "apartment-exit",
-      position: { x: 0, y: 5, z: 0 },
-      nextModelUrl: "/model/modern_house_06.glb",
+      nextModelId: "apartment",
     },
   ],
 };

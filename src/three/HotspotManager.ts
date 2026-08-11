@@ -188,10 +188,15 @@ export class HotspotManager {
   delete(id: string) {
     const anchor = this.model.getObjectByName(`anchor-${id}`);
     if (anchor) {
-      anchor.traverse((obj: any) => {
-        if (obj.geometry) obj.geometry.dispose();
-        if (obj.material) {
-          const materials = Array.isArray(obj.material) ? obj.material : [obj.material];
+      anchor.traverse((object) => {
+        const mesh = object as THREE.Mesh;
+
+        if (!mesh.isMesh) return;
+
+        mesh.geometry?.dispose();
+
+        if (mesh.material) {
+          const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
           materials.forEach((m: THREE.Material) => m.dispose());
         }
       });

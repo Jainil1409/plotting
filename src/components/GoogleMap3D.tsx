@@ -1,31 +1,64 @@
 /// <reference types="@types/google.maps" />
 "use client";
-import { useEffect, useRef, useState } from "react";
+import {
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import * as THREE from "three";
 
 import { GoogleMapsThreeRenderer } from "@/src/three/scene/GoogleMapsThreeRenderer";
 import { ModelManager } from "@/src/three/models/ModelManager";
-import { LoadedModel, ModelConfig } from "@/src/three/models/modelTypes";
+import { LoadedModel, ModelConfig, ModelDefinition } from "@/src/three/models/modelTypes";
 import { HotspotManager } from "@/src/three/hotspots/HotspotManager";
 import { ModelInteractionManager, PropertyPopup } from "@/src/three/interaction/ModelInteractionManager";
 
 import { PROPERTY_DETAILS } from "@/src/data/properties";
 import { HOTSPOTS } from "@/src/data/hotspots";
+import {
+  DEFAULT_MODEL_INSTANCE_ID,
+  getInitialModelConfigs,
+  getModelConfig,
+  getModelDefinition,
+} from "@/src/data/models";
 
 import ModelViewerOverlay from "@/src/components/ModelViewerOverlay";
 
 const GOOGLE_MAPS_API_KEY = "AIzaSyBCswT9ODeUU9ByGUjbRg1KzV-nUF3BFkU"; // demo key
 
-// Default anchor — model is visible here on load. User can move it via "Move Model".
-const DEFAULT_ANCHOR = { lat: 23.0225, lng: 72.5714, altitude: 0 }; // Ahmedabad
-const MODEL_HEADING = 0;
+const defaultModelConfig = getModelConfig(DEFAULT_MODEL_INSTANCE_ID);
 
-const HOUSE_MODEL_URL = "/model/modern_house_06.glb";
-const TARGET_MAX_DIM = 90;
+if (!defaultModelConfig) {
+  throw new Error(`Missing default model instance: ${DEFAULT_MODEL_INSTANCE_ID}`);
+}
+
+const DEFAULT_MODEL_CONFIG: ModelConfig = defaultModelConfig;
+
+// Default anchor — model is visible here on load. User can move it via "Move Model".
+const DEFAULT_ANCHOR = DEFAULT_MODEL_CONFIG.anchor; // Ahmedabad
+const MODEL_HEADING = DEFAULT_MODEL_CONFIG.heading;
+
+function cloneModelConfig(config: ModelConfig): ModelConfig {
+  return {
+    ...config,
+    anchor: { ...config.anchor },
+  };
+}
+
+function createInitialModelConfigMap() {
+  return new Map(
+    getInitialModelConfigs().map((config) => [
+      config.instanceId,
+      cloneModelConfig(config),
+    ])
+  );
+}
 
 export default function GoogleMap3D() {
   const mapDiv = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<any>(null);
+  const mapRef = useRef<google.maps.Map | null>(null);
 
   const rendererRef = useRef<GoogleMapsThreeRenderer | null>(null);
   const modelManagerRef = useRef(new ModelManager());
@@ -33,19 +66,17 @@ export default function GoogleMap3D() {
   const interactionManagerRef = useRef<ModelInteractionManager | null>(null);
 
   const currentModelRef = useRef<LoadedModel | null>(null);
+  const activeModelInstanceIdRef = useRef<string>(DEFAULT_MODEL_INSTANCE_ID);
+  const modelConfigsRef = useRef<Map<string, ModelConfig>>(createInitialModelConfigMap());
   const clockRef = useRef(new THREE.Clock());
 
   const anchorRef = useRef<{ lat: number; lng: number; altitude: number } | null>(DEFAULT_ANCHOR);
-  const placementListenerRef = useRef<any>(null);
+  const placementListenerRef = useRef<google.maps.MapsEventListener | null>(null);
 
-  const modelConfigRef = useRef<ModelConfig | null>({
-    id: "house",
-    modelUrl: HOUSE_MODEL_URL,
-    anchor: DEFAULT_ANCHOR,
-    heading: MODEL_HEADING,
-    scale: TARGET_MAX_DIM,
-  });
-  const [modelConfig, setModelConfig] = useState<ModelConfig | null>(modelConfigRef.current);
+  const modelConfigRef = useRef<ModelConfig | null>(cloneModelConfig(DEFAULT_MODEL_CONFIG));
+  const [modelConfig, setModelConfig] = useState<ModelConfig | null>(() =>
+    cloneModelConfig(DEFAULT_MODEL_CONFIG)
+  );
   const [placementMode, setPlacementMode] = useState(false);
   const placementModeRef = useRef(false);
   const [propertyPopup, setPropertyPopup] = useState<PropertyPopup | null>(null);
@@ -55,7 +86,7 @@ export default function GoogleMap3D() {
   // The ONLY thing hotspot clicks do now: flip this. It mounts/unmounts
   // <ModelViewerOverlay>, a completely independent canvas — no scene swapping
   // inside the map's own WebGLOverlayView anymore.
-  const [apartmentOpen, setApartmentOpen] = useState(false);
+  const [viewerModel, setViewerModel] = useState<ModelDefinition | null>(null);
 
   const dragStateRef = useRef<{ pointerId: number | null; startX: number; startHeading: number; dragging: boolean }>({
     pointerId: null,
@@ -66,16 +97,28 @@ export default function GoogleMap3D() {
 
   useEffect(() => {
     let canceled = false;
-    anchorRef.current = DEFAULT_ANCHOR;
+    const modelManager = modelManagerRef.current;
+    const hotspotManager = hotspotManagerRef.current;
+    anchorRef.current = { ...DEFAULT_ANCHOR };
+    const initialConfigs = getInitialModelConfigs().map(cloneModelConfig);
+    modelConfigsRef.current = new Map(
+      initialConfigs.map((config) => [config.instanceId, config])
+    );
+    modelConfigRef.current =
+      modelConfigsRef.current.get(activeModelInstanceIdRef.current) ??
+      initialConfigs[0] ??
+      null;
+    setModelConfig(modelConfigRef.current);
+    setModelHeadingDeg(modelConfigRef.current?.heading ?? MODEL_HEADING);
 
     const loadGoogleMaps = (): Promise<void> => {
       return new Promise((resolve, reject) => {
         if (typeof window === "undefined") return;
-        if ((window as any).google?.maps?.Map) { resolve(); return; }
+        if (window.google?.maps?.Map) { resolve(); return; }
         const existing = document.getElementById("gmaps-script");
         if (existing) {
           const poll = setInterval(() => {
-            if ((window as any).google?.maps?.Map) { clearInterval(poll); resolve(); }
+            if (window.google?.maps?.Map) { clearInterval(poll); resolve(); }
           }, 50);
           return;
         }
@@ -93,7 +136,7 @@ export default function GoogleMap3D() {
       await loadGoogleMaps();
       if (canceled || !mapDiv.current) return;
 
-      const g = (window as any).google as typeof globalThis.google;
+      const g = window.google;
 
       const map = new g.maps.Map(mapDiv.current, {
         center: { lat: DEFAULT_ANCHOR.lat, lng: DEFAULT_ANCHOR.lng },
@@ -115,7 +158,7 @@ export default function GoogleMap3D() {
       renderer.setOnDraw(() => {
         // Update hotspot animations each frame
         const t = clockRef.current.getElapsedTime();
-        hotspotManagerRef.current.update(t);
+        hotspotManager.update(t);
       });
       renderer.attachToMap(map);
       rendererRef.current = renderer;
@@ -126,23 +169,36 @@ export default function GoogleMap3D() {
         PROPERTY_DETAILS
       );
 
-      // ── Load the initial model ──
-      const config = modelConfigRef.current!;
-      const loaded = await modelManagerRef.current.loadModel(config);
+      // Load all configured model instances.
+      const sceneAnchor = anchorRef.current ?? DEFAULT_ANCHOR;
+      const loadedModels: LoadedModel[] = [];
 
-      if (canceled) return;
+      // Attach hotspots per model instance, separate from GLB loading.
+      for (const config of initialConfigs) {
+        const loaded = await modelManager.loadModel(config);
 
-      modelManagerRef.current.addModel(renderer.scene, loaded);
-      currentModelRef.current = loaded;
+        if (canceled) {
+          modelManager.dispose(loaded);
+          return;
+        }
 
-      interactionManagerRef.current?.setMeshes(loaded.meshes);
+        modelManager.setAnchor(loaded, config.anchor, sceneAnchor);
+        modelManager.addModel(renderer.scene, loaded);
+        loadedModels.push(loaded);
 
-      // ── Create hotspots for this model (separate from model loading) ──
-      const modelHotspots = HOTSPOTS[config.id] ?? [];
-      for (const hotspotConfig of modelHotspots) {
-        const hotspot = hotspotManagerRef.current.createHotspot(hotspotConfig);
-        hotspotManagerRef.current.attachHotspot(loaded.pivot, hotspot);
+        const modelHotspots = HOTSPOTS[config.hotspotSetId] ?? [];
+        for (const hotspotConfig of modelHotspots) {
+          const hotspot = hotspotManager.createHotspot(hotspotConfig);
+          hotspotManager.attachHotspot(loaded.pivot, hotspot);
+        }
       }
+
+      currentModelRef.current =
+        modelManager.getModel(activeModelInstanceIdRef.current) ??
+        loadedModels[0] ??
+        null;
+
+      interactionManagerRef.current?.setMeshes(modelManager.getAllMeshes());
 
       renderer.requestRedraw();
     })();
@@ -150,18 +206,16 @@ export default function GoogleMap3D() {
     return () => {
       canceled = true;
       if (placementListenerRef.current) {
-        (window as any).google?.maps?.event?.removeListener(placementListenerRef.current);
+        window.google?.maps?.event?.removeListener(placementListenerRef.current);
         placementListenerRef.current = null;
       }
 
-      // Dispose model
-      if (currentModelRef.current) {
-        modelManagerRef.current.dispose(currentModelRef.current);
-        currentModelRef.current = null;
-      }
+      // Dispose models
+      modelManager.disposeAll();
+      currentModelRef.current = null;
 
       // Dispose hotspots
-      hotspotManagerRef.current.dispose();
+      hotspotManager.dispose();
 
       // Dispose renderer
       rendererRef.current?.dispose();
@@ -177,7 +231,7 @@ export default function GoogleMap3D() {
     const map = mapRef.current;
     if (!map) return;
     if (placementListenerRef.current) {
-      (window as any).google.maps.event.removeListener(placementListenerRef.current);
+      window.google.maps.event.removeListener(placementListenerRef.current);
       placementListenerRef.current = null;
     }
     placementModeRef.current = true;
@@ -187,29 +241,44 @@ export default function GoogleMap3D() {
       const lat = e.latLng.lat();
       const lng = e.latLng.lng();
       const anchor = { lat, lng, altitude: 0 };
+      const activeInstanceId = activeModelInstanceIdRef.current;
+      const currentConfig =
+        modelConfigsRef.current.get(activeInstanceId) ?? modelConfigRef.current;
+
+      if (!currentConfig) return;
+
       anchorRef.current = anchor;
-      const newConfig = {
-        id: "house",
-        modelUrl: modelConfigRef.current!.modelUrl,
+      const newConfig: ModelConfig = {
+        ...currentConfig,
         anchor,
         heading: modelHeadingDeg,
-        scale: TARGET_MAX_DIM,
       };
+      const loaded = modelManagerRef.current.getModel(activeInstanceId);
+
+      if (loaded) {
+        loaded.config = newConfig;
+      }
+
+      modelConfigsRef.current.set(newConfig.instanceId, newConfig);
       modelConfigRef.current = newConfig;
       setModelConfig(newConfig);
       mapRef.current?.setCenter({ lat, lng });
       mapRef.current?.setZoom(18);
       mapRef.current?.setTilt(45);
       rendererRef.current?.setAnchor(anchor);
+      modelManagerRef.current.setSceneOrigin(anchor);
       rendererRef.current?.requestRedraw();
-      (window as any).google.maps.event.removeListener(placementListenerRef.current);
+      const placementListener = placementListenerRef.current;
+      if (placementListener) {
+        window.google.maps.event.removeListener(placementListener);
+      }
       placementListenerRef.current = null;
       placementModeRef.current = false;
       setPlacementMode(false);
     });
   };
 
-  const handleScenePick = (event: any) => {
+  const handleScenePick = (event: ReactMouseEvent<HTMLDivElement>) => {
     if (placementModeRef.current) return;
     const renderer = rendererRef.current;
     const mapElement = mapDiv.current;
@@ -218,13 +287,14 @@ export default function GoogleMap3D() {
       return;
     }
 
+    const nativeEvent = event.nativeEvent;
     const camera = renderer.camera;
 
     // Calibration: Alt+click any point on the house to log its exact
     // pivot-local coordinate.
     if (event.altKey && currentModelRef.current) {
       const local = interactionManagerRef.current?.calibrateLocalPosition(
-        event,
+        nativeEvent,
         camera,
         currentModelRef.current.pivot,
         mapElement
@@ -239,20 +309,27 @@ export default function GoogleMap3D() {
 
     // ── Hotspot click detection (independent of model loading) ──
     const hotspot = hotspotManagerRef.current.pickHotspotAt(
-      event,
+      nativeEvent,
       camera,
       mapElement
     );
 
     if (hotspot) {
-      console.log("Hotspot clicked -> Opening ModelViewer:", hotspot.nextModelUrl);
-      setApartmentOpen(true);
+      const nextModel = getModelDefinition(hotspot.nextModelId);
+
+      if (!nextModel) {
+        console.warn("Hotspot target model is not registered:", hotspot.nextModelId);
+        return;
+      }
+
+      console.log("Hotspot clicked -> Opening ModelViewer:", hotspot.nextModelId);
+      setViewerModel(nextModel);
       return;
     }
 
     // ── Property selection via ModelInteractionManager ──
     const result = interactionManagerRef.current?.handleClick(
-      event,
+      nativeEvent,
       camera,
       mapElement
     );
@@ -280,7 +357,7 @@ export default function GoogleMap3D() {
     map.setTilt(nextTilt);
   };
 
-  const startDragRotate = (event: any) => {
+  const startDragRotate = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const map = mapRef.current;
     if (!map) return;
     dragStateRef.current = {
@@ -292,7 +369,7 @@ export default function GoogleMap3D() {
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
-  const moveDragRotate = (event: any) => {
+  const moveDragRotate = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const state = dragStateRef.current;
     const map = mapRef.current;
     if (!map || !state.dragging || state.pointerId !== event.pointerId) return;
@@ -301,7 +378,7 @@ export default function GoogleMap3D() {
     map.setHeading(nextHeading);
   };
 
-  const endDragRotate = (event: any) => {
+  const endDragRotate = (event: ReactPointerEvent<HTMLButtonElement>) => {
     const state = dragStateRef.current;
     if (state.pointerId !== event.pointerId) return;
     dragStateRef.current = { pointerId: null, startX: 0, startHeading: 0, dragging: false };
@@ -313,13 +390,19 @@ export default function GoogleMap3D() {
   };
 
   const setModelHeading = (degrees: number) => {
-    const loaded = currentModelRef.current;
+    const activeInstanceId = activeModelInstanceIdRef.current;
+    const loaded =
+      modelManagerRef.current.getModel(activeInstanceId) ?? currentModelRef.current;
+
     if (!loaded) return;
+
     const normalized = ((degrees % 360) + 360) % 360;
     modelManagerRef.current.setHeading(loaded, normalized);
     setModelHeadingDeg(normalized);
     setModelConfig(prev => {
-      const updated = prev ? { ...prev, heading: normalized } : prev;
+      const updated = { ...(prev ?? loaded.config), heading: normalized };
+      loaded.config = updated;
+      modelConfigsRef.current.set(updated.instanceId, updated);
       modelConfigRef.current = updated;
       return updated;
     });
@@ -579,10 +662,10 @@ export default function GoogleMap3D() {
       <div ref={mapDiv} onClick={handleScenePick} style={{ width: "100%", height: "100%", cursor: placementMode ? "crosshair" : "default" }} />
 
       {/* Completely separate canvas/renderer/camera — mounted only while open. */}
-      {apartmentOpen && (
+      {viewerModel && (
         <ModelViewerOverlay
-          modelUrl="/model/appartement.glb"
-          onBack={() => setApartmentOpen(false)}
+          model={viewerModel}
+          onBack={() => setViewerModel(null)}
         />
       )}
     </div>

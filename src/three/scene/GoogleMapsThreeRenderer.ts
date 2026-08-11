@@ -8,9 +8,9 @@ export class GoogleMapsThreeRenderer {
   camera: THREE.PerspectiveCamera;
 
   private renderer: THREE.WebGLRenderer | null = null;
-  private overlay: any = null;
-  private map: any = null;
-  private anchor: { lat: number; lng: number; altitude: number } | null = null;
+  private overlay: google.maps.WebGLOverlayView | null = null;
+  private map: google.maps.Map | null = null;
+  private anchor: google.maps.LatLngAltitudeLiteral | null = null;
   private onDrawCallback: (() => void) | null = null;
 
   constructor() {
@@ -19,7 +19,7 @@ export class GoogleMapsThreeRenderer {
     createLighting(this.scene);
   }
 
-  setAnchor(anchor: { lat: number; lng: number; altitude: number }) {
+  setAnchor(anchor: google.maps.LatLngAltitudeLiteral) {
     this.anchor = anchor;
   }
 
@@ -31,16 +31,16 @@ export class GoogleMapsThreeRenderer {
     this.onDrawCallback = callback;
   }
 
-  attachToMap(map: any) {
+  attachToMap(map: google.maps.Map) {
     this.map = map;
 
-    const overlay = new (window as any).google.maps.WebGLOverlayView();
+    const overlay = new window.google.maps.WebGLOverlayView();
 
     overlay.onAdd = () => {
       // scene & camera already built in constructor
     };
 
-    overlay.onContextRestored = ({ gl }: { gl: WebGLRenderingContext }) => {
+    overlay.onContextRestored = ({ gl }: google.maps.WebGLStateOptions) => {
       this.renderer = new THREE.WebGLRenderer({
         canvas: gl.canvas as HTMLCanvasElement,
         context: gl,
@@ -66,7 +66,7 @@ export class GoogleMapsThreeRenderer {
       );
     };
 
-    overlay.onDraw = ({ gl, transformer }: any) => {
+    overlay.onDraw = ({ gl, transformer }: google.maps.WebGLDrawOptions) => {
       overlay.requestRedraw();
 
       if (!this.renderer || !this.anchor) return;
