@@ -380,9 +380,7 @@ export default function HotspotEditorPanel({
                 </div>
 
                 <div className="ed-actions">
-                  <button type="button" className="ed-btn ed-btn-primary" onClick={() => onCapture(selectedHotspot.id)}>
-                    <LensIcon size={13} /> Capture camera
-                  </button>
+                  
                   <button
                     type="button"
                     className="ed-btn ed-btn-danger"

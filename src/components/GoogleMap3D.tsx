@@ -1,5 +1,6 @@
 /// <reference types="@types/google.maps" />
 "use client";
+
 import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
@@ -29,16 +30,25 @@ import ModelViewerOverlay from "@/src/components/ModelViewerOverlay";
 const GOOGLE_MAPS_API_KEY = "AIzaSyBCswT9ODeUU9ByGUjbRg1KzV-nUF3BFkU"; // demo key
 
 const defaultModelConfig = getModelConfig(DEFAULT_MODEL_INSTANCE_ID);
-
 if (!defaultModelConfig) {
   throw new Error(`Missing default model instance: ${DEFAULT_MODEL_INSTANCE_ID}`);
 }
 
 const DEFAULT_MODEL_CONFIG: ModelConfig = defaultModelConfig;
-
-// Default anchor — model is visible here on load. User can move it via "Move Model".
-const DEFAULT_ANCHOR = DEFAULT_MODEL_CONFIG.anchor; // Ahmedabad
+const DEFAULT_ANCHOR = DEFAULT_MODEL_CONFIG.anchor;
 const MODEL_HEADING = DEFAULT_MODEL_CONFIG.heading;
+
+// Cardinal compass dial mapping (0° = N, clockwise)
+const COMPASS_DIAL: { label: string; deg: number; x: number; y: number }[] = [
+  { label: "N", deg: 0, x: 75, y: 16 },
+  { label: "NE", deg: 45, x: 116, y: 32 },
+  { label: "E", deg: 90, x: 132, y: 75 },
+  { label: "SE", deg: 135, x: 116, y: 116 },
+  { label: "S", deg: 180, x: 75, y: 132 },
+  { label: "SW", deg: 225, x: 32, y: 116 },
+  { label: "W", deg: 270, x: 16, y: 75 },
+  { label: "NW", deg: 315, x: 32, y: 32 },
+];
 
 function cloneModelConfig(config: ModelConfig): ModelConfig {
   return {
@@ -54,6 +64,12 @@ function createInitialModelConfigMap() {
       cloneModelConfig(config),
     ])
   );
+}
+
+interface ModelSummary {
+  instanceId: string;
+  label: string;
+  heading: number;
 }
 
 export default function GoogleMap3D() {
@@ -74,18 +90,25 @@ export default function GoogleMap3D() {
   const placementListenerRef = useRef<google.maps.MapsEventListener | null>(null);
 
   const modelConfigRef = useRef<ModelConfig | null>(cloneModelConfig(DEFAULT_MODEL_CONFIG));
-  const [modelConfig, setModelConfig] = useState<ModelConfig | null>(() =>
+  const [, setModelConfig] = useState<ModelConfig | null>(() =>
     cloneModelConfig(DEFAULT_MODEL_CONFIG)
   );
   const [placementMode, setPlacementMode] = useState(false);
   const placementModeRef = useRef(false);
   const [propertyPopup, setPropertyPopup] = useState<PropertyPopup | null>(null);
-  const [modelHeadingDeg, setModelHeadingDeg] = useState(MODEL_HEADING);
+  const [, setModelHeadingDeg] = useState(MODEL_HEADING);
   const [compassOpen, setCompassOpen] = useState(false);
 
-  // The ONLY thing hotspot clicks do now: flip this. It mounts/unmounts
-  // <ModelViewerOverlay>, a completely independent canvas — no scene swapping
-  // inside the map's own WebGLOverlayView anymore.
+  // Collapsible state for Tactical Viewport Command Deck
+  const [deckOpen, setDeckOpen] = useState(true);
+
+  const [loadedModelSummaries, setLoadedModelSummaries] = useState<ModelSummary[]>([]);
+  const [selectedModelIds, setSelectedModelIds] = useState<Set<string>>(new Set());
+  const selectedModelIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    selectedModelIdsRef.current = selectedModelIds;
+  }, [selectedModelIds]);
+
   const [viewerModel, setViewerModel] = useState<ModelDefinition | null>(null);
 
   const dragStateRef = useRef<{ pointerId: number | null; startX: number; startHeading: number; dragging: boolean }>({
@@ -145,35 +168,27 @@ export default function GoogleMap3D() {
         heading: 0,
         mapId: "8e0a97af9386fef",
         disableDefaultUI: true,
-        rotateControl: true,
+        rotateControl: false,
         gestureHandling: "greedy",
         keyboardShortcuts: true,
         mapTypeId: "roadmap",
       });
       mapRef.current = map;
 
-      // ── Three.js scene / camera / renderer via GoogleMapsThreeRenderer ──
       const renderer = new GoogleMapsThreeRenderer();
       renderer.setAnchor(DEFAULT_ANCHOR);
       renderer.setOnDraw(() => {
-        // Update hotspot animations each frame
         const t = clockRef.current.getElapsedTime();
         hotspotManager.update(t);
       });
       renderer.attachToMap(map);
       rendererRef.current = renderer;
 
-      // ── Interaction manager (property selection) ──
-      interactionManagerRef.current = new ModelInteractionManager(
-        [],
-        PROPERTY_DETAILS
-      );
+      interactionManagerRef.current = new ModelInteractionManager([], PROPERTY_DETAILS);
 
-      // Load all configured model instances.
       const sceneAnchor = anchorRef.current ?? DEFAULT_ANCHOR;
       const loadedModels: LoadedModel[] = [];
 
-      // Attach hotspots per model instance, separate from GLB loading.
       for (const config of initialConfigs) {
         const loaded = await modelManager.loadModel(config);
 
@@ -194,12 +209,23 @@ export default function GoogleMap3D() {
       }
 
       currentModelRef.current =
-        modelManager.getModel(activeModelInstanceIdRef.current) ??
-        loadedModels[0] ??
-        null;
+        modelManager.getModel(activeModelInstanceIdRef.current) ?? loadedModels[0] ?? null;
+
+      const summaries: ModelSummary[] = loadedModels.map((m) => ({
+        instanceId: m.instanceId,
+        label: m.config.label ?? m.instanceId,
+        heading: m.config.heading,
+      }));
+      setLoadedModelSummaries(summaries);
+      const defaultSelection = new Set<string>(
+        summaries.some((s) => s.instanceId === activeModelInstanceIdRef.current)
+          ? [activeModelInstanceIdRef.current]
+          : summaries.slice(0, 1).map((s) => s.instanceId)
+      );
+      setSelectedModelIds(defaultSelection);
+      selectedModelIdsRef.current = defaultSelection;
 
       interactionManagerRef.current?.setMeshes(modelManager.getAllMeshes());
-
       renderer.requestRedraw();
     })();
 
@@ -210,14 +236,10 @@ export default function GoogleMap3D() {
         placementListenerRef.current = null;
       }
 
-      // Dispose models
       modelManager.disposeAll();
       currentModelRef.current = null;
-
-      // Dispose hotspots
       hotspotManager.dispose();
 
-      // Dispose renderer
       rendererRef.current?.dispose();
       rendererRef.current = null;
 
@@ -227,47 +249,78 @@ export default function GoogleMap3D() {
     };
   }, []);
 
+  const toggleModelCheckbox = (instanceId: string) => {
+    setSelectedModelIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(instanceId)) {
+        next.delete(instanceId);
+      } else {
+        next.add(instanceId);
+      }
+      return next;
+    });
+  };
+
   const enterPlacementMode = () => {
     const map = mapRef.current;
     if (!map) return;
+
+    const ids = Array.from(selectedModelIdsRef.current);
+    if (ids.length === 0) return;
+
     if (placementListenerRef.current) {
       window.google.maps.event.removeListener(placementListenerRef.current);
       placementListenerRef.current = null;
     }
     placementModeRef.current = true;
     setPlacementMode(true);
+
+    const startAnchors = new Map<string, { lat: number; lng: number; altitude: number }>();
+    ids.forEach((instanceId) => {
+      const config = modelConfigsRef.current.get(instanceId);
+      if (config) startAnchors.set(instanceId, { ...config.anchor });
+    });
+
+    const referenceId = ids[0];
+    const referenceStart = startAnchors.get(referenceId);
+
     placementListenerRef.current = map.addListener("click", (e: google.maps.MapMouseEvent) => {
-      if (!e.latLng) return;
-      const lat = e.latLng.lat();
-      const lng = e.latLng.lng();
-      const anchor = { lat, lng, altitude: 0 };
-      const activeInstanceId = activeModelInstanceIdRef.current;
-      const currentConfig =
-        modelConfigsRef.current.get(activeInstanceId) ?? modelConfigRef.current;
+      if (!e.latLng || !referenceStart) return;
 
-      if (!currentConfig) return;
+      const clickLat = e.latLng.lat();
+      const clickLng = e.latLng.lng();
+      const deltaLat = clickLat - referenceStart.lat;
+      const deltaLng = clickLng - referenceStart.lng;
 
-      anchorRef.current = anchor;
-      const newConfig: ModelConfig = {
-        ...currentConfig,
-        anchor,
-        heading: modelHeadingDeg,
-      };
-      const loaded = modelManagerRef.current.getModel(activeInstanceId);
+      ids.forEach((instanceId) => {
+        const start = startAnchors.get(instanceId);
+        const loaded = modelManagerRef.current.getModel(instanceId);
+        if (!start || !loaded) return;
 
-      if (loaded) {
+        const anchor = {
+          lat: start.lat + deltaLat,
+          lng: start.lng + deltaLng,
+          altitude: start.altitude,
+        };
+        const newConfig: ModelConfig = { ...loaded.config, anchor };
         loaded.config = newConfig;
-      }
+        modelConfigsRef.current.set(instanceId, newConfig);
 
-      modelConfigsRef.current.set(newConfig.instanceId, newConfig);
-      modelConfigRef.current = newConfig;
-      setModelConfig(newConfig);
-      mapRef.current?.setCenter({ lat, lng });
+        if (instanceId === activeModelInstanceIdRef.current) {
+          modelConfigRef.current = newConfig;
+          setModelConfig(newConfig);
+        }
+      });
+
+      const newSceneAnchor = { lat: clickLat, lng: clickLng, altitude: 0 };
+      anchorRef.current = newSceneAnchor;
+      mapRef.current?.setCenter({ lat: clickLat, lng: clickLng });
       mapRef.current?.setZoom(18);
       mapRef.current?.setTilt(45);
-      rendererRef.current?.setAnchor(anchor);
-      modelManagerRef.current.setSceneOrigin(anchor);
+      rendererRef.current?.setAnchor(newSceneAnchor);
+      modelManagerRef.current.setSceneOrigin(newSceneAnchor);
       rendererRef.current?.requestRedraw();
+
       const placementListener = placementListenerRef.current;
       if (placementListener) {
         window.google.maps.event.removeListener(placementListener);
@@ -282,16 +335,11 @@ export default function GoogleMap3D() {
     if (placementModeRef.current) return;
     const renderer = rendererRef.current;
     const mapElement = mapDiv.current;
-    if (!renderer || !mapElement) {
-      console.log("Raycast click ignored: scene is not ready yet");
-      return;
-    }
+    if (!renderer || !mapElement) return;
 
     const nativeEvent = event.nativeEvent;
     const camera = renderer.camera;
 
-    // Calibration: Alt+click any point on the house to log its exact
-    // pivot-local coordinate.
     if (event.altKey && currentModelRef.current) {
       const local = interactionManagerRef.current?.calibrateLocalPosition(
         nativeEvent,
@@ -299,40 +347,19 @@ export default function GoogleMap3D() {
         currentModelRef.current.pivot,
         mapElement
       );
-      if (local) {
-        console.info("Calibration — Alt+clicked pivot-local position:", [local.x, local.y, local.z]);
-      } else {
-        console.info("Calibration: Alt+click didn't hit any model geometry.");
-      }
+      if (local) console.info("Calibration position:", [local.x, local.y, local.z]);
       return;
     }
 
-    // ── Hotspot click detection (independent of model loading) ──
-    const hotspot = hotspotManagerRef.current.pickHotspotAt(
-      nativeEvent,
-      camera,
-      mapElement
-    );
+    const hotspot = hotspotManagerRef.current.pickHotspotAt(nativeEvent, camera, mapElement);
 
     if (hotspot) {
       const nextModel = getModelDefinition(hotspot.nextModelId);
-
-      if (!nextModel) {
-        console.warn("Hotspot target model is not registered:", hotspot.nextModelId);
-        return;
-      }
-
-      console.log("Hotspot clicked -> Opening ModelViewer:", hotspot.nextModelId);
-      setViewerModel(nextModel);
+      if (nextModel) setViewerModel(nextModel);
       return;
     }
 
-    // ── Property selection via ModelInteractionManager ──
-    const result = interactionManagerRef.current?.handleClick(
-      nativeEvent,
-      camera,
-      mapElement
-    );
+    const result = interactionManagerRef.current?.handleClick(nativeEvent, camera, mapElement);
 
     if (result?.type === "property") {
       setPropertyPopup(result.popup);
@@ -345,16 +372,14 @@ export default function GoogleMap3D() {
     const map = mapRef.current;
     if (!map) return;
     const currentHeading = map.getHeading?.() ?? 0;
-    const nextHeading = ((currentHeading + deltaDegrees) % 360 + 360) % 360;
-    map.setHeading(nextHeading);
+    map.setHeading(((currentHeading + deltaDegrees) % 360 + 360) % 360);
   };
 
   const tiltMap = (deltaDegrees: number) => {
     const map = mapRef.current;
     if (!map) return;
     const currentTilt = map.getTilt?.() ?? 0;
-    const nextTilt = Math.min(67.5, Math.max(0, currentTilt + deltaDegrees));
-    map.setTilt(nextTilt);
+    map.setTilt(Math.min(67.5, Math.max(0, currentTilt + deltaDegrees)));
   };
 
   const startDragRotate = (event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -374,8 +399,7 @@ export default function GoogleMap3D() {
     const map = mapRef.current;
     if (!map || !state.dragging || state.pointerId !== event.pointerId) return;
     const deltaX = event.clientX - state.startX;
-    const nextHeading = ((state.startHeading + deltaX * 0.5) % 360 + 360) % 360;
-    map.setHeading(nextHeading);
+    map.setHeading(((state.startHeading + deltaX * 0.5) % 360 + 360) % 360);
   };
 
   const endDragRotate = (event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -389,279 +413,383 @@ export default function GoogleMap3D() {
     }
   };
 
-  const setModelHeading = (degrees: number) => {
-    const activeInstanceId = activeModelInstanceIdRef.current;
-    const loaded =
-      modelManagerRef.current.getModel(activeInstanceId) ?? currentModelRef.current;
-
-    if (!loaded) return;
+  const setModelHeadingForSelection = (degrees: number) => {
+    const ids = selectedModelIdsRef.current;
+    if (ids.size === 0) return;
 
     const normalized = ((degrees % 360) + 360) % 360;
-    modelManagerRef.current.setHeading(loaded, normalized);
+
+    setLoadedModelSummaries((prev) =>
+      prev.map((summary) => {
+        if (!ids.has(summary.instanceId)) return summary;
+
+        const loaded = modelManagerRef.current.getModel(summary.instanceId);
+        if (loaded) {
+          modelManagerRef.current.setHeading(loaded, normalized);
+          const updatedConfig = { ...loaded.config, heading: normalized };
+          loaded.config = updatedConfig;
+          modelConfigsRef.current.set(summary.instanceId, updatedConfig);
+
+          if (summary.instanceId === activeModelInstanceIdRef.current) {
+            modelConfigRef.current = updatedConfig;
+            setModelConfig(updatedConfig);
+          }
+        }
+
+        return { ...summary, heading: normalized };
+      })
+    );
+
     setModelHeadingDeg(normalized);
-    setModelConfig(prev => {
-      const updated = { ...(prev ?? loaded.config), heading: normalized };
-      loaded.config = updated;
-      modelConfigsRef.current.set(updated.instanceId, updated);
-      modelConfigRef.current = updated;
-      return updated;
-    });
+    rendererRef.current?.requestRedraw();
   };
 
+  const selectedSummaries = loadedModelSummaries.filter((m) => selectedModelIds.has(m.instanceId));
+  const headingsMatch =
+    selectedSummaries.length > 0 &&
+    selectedSummaries.every((m) => m.heading === selectedSummaries[0].heading);
+  const compassDisplayDeg = selectedSummaries.length === 0 ? 0 : headingsMatch ? selectedSummaries[0].heading : 0;
+  const controlsDisabled = selectedModelIds.size === 0;
+
   return (
-    <div style={{ position: "relative", width: "100%", height: "100%", fontFamily: "'Inter', 'Segoe UI', sans-serif" }}>
+    <div className="spatial-ui-root relative w-full h-full font-sans select-none overflow-hidden bg-slate-950 text-slate-100">
+      <style>{`
+        .hud-glass {
+          background: rgba(11, 19, 36, 0.72);
+          backdrop-filter: blur(20px) saturate(180%);
+          -webkit-backdrop-filter: blur(20px) saturate(180%);
+          border: 1px solid rgba(56, 189, 248, 0.18);
+          box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+        }
 
-      {/* ── Top-left: Place / Move Model ── */}
-      <div style={{ position: "absolute", top: 16, left: 16, zIndex: 10 }}>
-        <button
-          type="button"
-          onClick={placementMode ? undefined : enterPlacementMode}
-          title={placementMode ? "Click anywhere on the map to place the model" : modelConfig ? "Move model to a new location" : "Place model on the map"}
-          style={{
-            border: placementMode ? "1.5px solid rgba(251,191,36,0.7)" : "1px solid rgba(255,255,255,0.08)",
-            borderRadius: 999,
-            padding: "9px 18px",
-            background: placementMode ? "rgba(251,191,36,0.18)" : "rgba(10,18,35,0.78)",
-            color: placementMode ? "#fbbf24" : "#e2e8f0",
-            cursor: placementMode ? "crosshair" : "pointer",
-            backdropFilter: "blur(12px)",
-            boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
-            fontSize: 12, fontWeight: 700, letterSpacing: 0.4,
-            display: "flex", alignItems: "center", gap: 7,
-            transition: "background 0.2s, color 0.2s, border 0.2s",
-            userSelect: "none",
-          }}
-        >
-          <span style={{ fontSize: 15 }}>{placementMode ? "📍" : "✦"}</span>
-          {placementMode ? "Click map to place…" : "Move Model"}
-        </button>
-      </div>
+        .hud-glow {
+          box-shadow: 0 0 20px rgba(56, 189, 248, 0.25);
+        }
 
-      {/* ── Top-right: Map rotation ── */}
-      <div style={{
-        position: "absolute", top: 16, right: 16, zIndex: 10,
-        display: "flex", flexDirection: "column", gap: 6,
-        alignItems: "center",
-      }}>
-        <div style={{
-          background: "rgba(10, 18, 35, 0.78)",
-          backdropFilter: "blur(12px)",
-          borderRadius: 14,
-          border: "1px solid rgba(255,255,255,0.08)",
-          boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
-          padding: "6px",
-          display: "flex", flexDirection: "column", gap: 4,
-        }}>
-          <div style={{ color: "rgba(255,255,255,0.35)", fontSize: 9, fontWeight: 700, letterSpacing: 1, textAlign: "center", paddingBottom: 2 }}>ROTATE</div>
-          <button type="button" onClick={() => rotateMap(-45)}
-            title="Rotate left"
-            style={{ border: "none", width: 38, height: 38, borderRadius: 10, background: "rgba(255,255,255,0.07)", color: "#e2e8f0", cursor: "pointer", fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s" }}
-            onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.15)")}
-            onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.07)")}
-          >⟲</button>
-          <button type="button" onClick={() => rotateMap(45)}
-            title="Rotate right"
-            style={{ border: "none", width: 38, height: 38, borderRadius: 10, background: "rgba(255,255,255,0.07)", color: "#e2e8f0", cursor: "pointer", fontSize: 18, display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s" }}
-            onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.15)")}
-            onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.07)")}
-          >⟳</button>
-        </div>
+        .hud-chip-active {
+          background: linear-gradient(135deg, rgba(56, 189, 248, 0.25), rgba(14, 165, 233, 0.08));
+          border-color: rgba(56, 189, 248, 0.6);
+          color: #38bdf8;
+        }
 
-        <div style={{
-          background: "rgba(10, 18, 35, 0.78)",
-          backdropFilter: "blur(12px)",
-          borderRadius: 14,
-          border: "1px solid rgba(255,255,255,0.08)",
-          boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
-          padding: "6px",
-          display: "flex", flexDirection: "column", gap: 4,
-        }}>
-          <div style={{ color: "rgba(255,255,255,0.35)", fontSize: 9, fontWeight: 700, letterSpacing: 1, textAlign: "center", paddingBottom: 2 }}>TILT</div>
-          <button type="button" onClick={() => tiltMap(8)}
-            title="Tilt up"
-            style={{ border: "none", width: 38, height: 38, borderRadius: 10, background: "rgba(255,255,255,0.07)", color: "#e2e8f0", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s" }}
-            onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.15)")}
-            onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.07)")}
-          >▲</button>
-          <button type="button" onClick={() => tiltMap(-8)}
-            title="Tilt down"
-            style={{ border: "none", width: 38, height: 38, borderRadius: 10, background: "rgba(255,255,255,0.07)", color: "#e2e8f0", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", transition: "background 0.15s" }}
-            onMouseEnter={e => (e.currentTarget.style.background = "rgba(255,255,255,0.15)")}
-            onMouseLeave={e => (e.currentTarget.style.background = "rgba(255,255,255,0.07)")}
-          >▼</button>
-        </div>
-      </div>
+        .hud-slider::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          width: 14px;
+          height: 14px;
+          border-radius: 50%;
+          background: #38bdf8;
+          box-shadow: 0 0 10px #38bdf8;
+          cursor: pointer;
+        }
 
-      {/* ── Bottom-right: Drag to rotate ── */}
-      <button
-        type="button"
-        onPointerDown={startDragRotate}
-        onPointerMove={moveDragRotate}
-        onPointerUp={endDragRotate}
-        onPointerCancel={endDragRotate}
-        onLostPointerCapture={endDragRotate}
-        title="Drag horizontally to rotate the map"
-        style={{
-          position: "absolute", bottom: 16, right: 16, zIndex: 10,
-          border: "1px solid rgba(255,255,255,0.08)",
-          padding: "9px 16px",
-          borderRadius: 999,
-          background: "rgba(10,18,35,0.78)",
-          color: "#e2e8f0",
-          cursor: "grab",
-          backdropFilter: "blur(12px)",
-          boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
-          fontSize: 12,
-          fontWeight: 600,
-          letterSpacing: 0.4,
-          display: "flex", alignItems: "center", gap: 7,
-          userSelect: "none",
-        }}
-      >
-        <span style={{ fontSize: 15 }}>↔</span> Drag to rotate 360°
-      </button>
+        /* Tactical Compass Dial Ring */
+        .compass-dial-wrap {
+          position: relative;
+          width: 150px;
+          height: 150px;
+          margin: 4px auto;
+        }
 
-      {/* ── Bottom-left: Model heading compass ── */}
-      <div style={{ position: "absolute", bottom: 16, left: 16, zIndex: 10 }}>
-        <button
-          type="button"
-          onClick={() => setCompassOpen(o => !o)}
-          title="Model heading"
-          style={{
-            border: "1px solid rgba(255,255,255,0.08)",
-            borderRadius: 999,
-            padding: "9px 16px",
-            background: compassOpen ? "rgba(99,179,237,0.92)" : "rgba(10,18,35,0.78)",
-            color: compassOpen ? "#0f172a" : "#e2e8f0",
-            cursor: "pointer",
-            backdropFilter: "blur(12px)",
-            boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
-            fontSize: 12, fontWeight: 700, letterSpacing: 0.4,
-            display: "flex", alignItems: "center", gap: 7,
-            transition: "background 0.2s, color 0.2s",
-          }}
-        >
-          <span style={{
-            fontSize: 16,
-            display: "inline-block",
-            transform: `rotate(${modelHeadingDeg}deg)`,
-            transition: "transform 0.35s cubic-bezier(.4,0,.2,1)",
-          }}>🧭</span>
-          Model Direction &nbsp;<span style={{ opacity: 0.7, fontWeight: 400 }}>{modelHeadingDeg}°</span>
-        </button>
+        .compass-dial-ring {
+          position: absolute;
+          inset: 0;
+          border-radius: 50%;
+          border: 1px dashed rgba(56, 189, 248, 0.3);
+          background: radial-gradient(circle at center, rgba(15, 23, 42, 0.8) 0%, rgba(15, 23, 42, 0.4) 60%, transparent 70%);
+        }
 
-        {compassOpen && (
-          <div style={{
-            position: "absolute", bottom: "calc(100% + 10px)", left: 0,
-            background: "rgba(10,18,35,0.94)",
-            border: "1px solid rgba(255,255,255,0.1)",
-            borderRadius: 18,
-            padding: "14px 14px 12px",
-            backdropFilter: "blur(16px)",
-            boxShadow: "0 16px 48px rgba(0,0,0,0.5)",
-            minWidth: 160,
-          }}>
-            <div style={{
-              color: "rgba(255,255,255,0.4)",
-              fontSize: 10, fontWeight: 700, letterSpacing: 1.2,
-              textAlign: "center", marginBottom: 10,
-            }}>MODEL HEADING</div>
+        .compass-needle {
+          position: absolute;
+          left: 50%;
+          top: 50%;
+          width: 3px;
+          height: 42px;
+          background: linear-gradient(180deg, #38bdf8, rgba(56, 189, 248, 0.1));
+          border-radius: 3px;
+          transform-origin: 50% 100%;
+          box-shadow: 0 0 8px #38bdf8;
+          transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
 
-            {([
-              [{ label: "NW", deg: 315 }, { label: "N", deg: 0 }, { label: "NE", deg: 45 }],
-              [{ label: "W", deg: 270 }, { label: "·", deg: -1 }, { label: "E", deg: 90 }],
-              [{ label: "SW", deg: 225 }, { label: "S", deg: 180 }, { label: "SE", deg: 135 }],
-            ] as { label: string; deg: number }[][]).map((row, ri) => (
-              <div key={ri} style={{ display: "flex", gap: 5, marginBottom: ri < 2 ? 5 : 0, justifyContent: "center" }}>
-                {row.map((cell) => {
-                  const isActive = cell.deg !== -1 && modelHeadingDeg === cell.deg;
-                  const isCenter = cell.deg === -1;
-                  return (
-                    <button
-                      key={cell.label}
-                      type="button"
-                      disabled={isCenter}
-                      onClick={() => !isCenter && setModelHeading(cell.deg)}
-                      title={!isCenter ? `${cell.label} — ${cell.deg}°` : undefined}
-                      style={{
-                        width: 42, height: 42, borderRadius: 11,
-                        border: isActive ? "1.5px solid rgba(99,179,237,0.8)" : "1px solid rgba(255,255,255,0.07)",
-                        background: isActive
-                          ? "rgba(99,179,237,0.22)"
-                          : isCenter ? "transparent" : "rgba(255,255,255,0.05)",
-                        color: isActive ? "#63b3ed" : isCenter ? "rgba(255,255,255,0.2)" : "#cbd5e1",
-                        cursor: isCenter ? "default" : "pointer",
-                        fontSize: isCenter ? 20 : 11,
-                        fontWeight: 700,
-                        letterSpacing: 0.3,
-                        transition: "background 0.15s, border 0.15s, color 0.15s",
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                      }}
-                      onMouseEnter={e => { if (!isCenter && !isActive) e.currentTarget.style.background = "rgba(255,255,255,0.1)"; }}
-                      onMouseLeave={e => { if (!isCenter && !isActive) e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
-                    >
-                      {cell.label}
-                    </button>
-                  );
-                })}
+        .compass-hub {
+          position: absolute;
+          left: 50%;
+          top: 50%;
+          width: 8px;
+          height: 8px;
+          border-radius: 50%;
+          background: #38bdf8;
+          transform: translate(-50%, -50%);
+          box-shadow: 0 0 10px #38bdf8;
+        }
+
+        .compass-dial-btn {
+          position: absolute;
+          width: 28px;
+          height: 28px;
+          border-radius: 8px;
+          border: 1px solid rgba(56, 189, 248, 0.2);
+          background: rgba(15, 23, 42, 0.85);
+          color: #94a3b8;
+          font-size: 10px;
+          font-weight: 800;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transform: translate(-50%, -50%);
+          transition: all 0.15s ease;
+        }
+
+        .compass-dial-btn:hover {
+          background: rgba(56, 189, 248, 0.2);
+          color: #38bdf8;
+          border-color: rgba(56, 189, 248, 0.5);
+        }
+
+        .compass-dial-btn.is-active {
+          background: #38bdf8;
+          color: #0f172a;
+          border-color: #38bdf8;
+          box-shadow: 0 0 10px rgba(56, 189, 248, 0.6);
+        }
+      `}</style>
+
+      {/* ── TOP-LEFT: SPATIAL HUD COMMAND DECK (COLLAPSIBLE) ── */}
+      <div className="absolute top-5 left-5 z-20 w-80 flex flex-col gap-3">
+        <div className="hud-glass rounded-3xl p-4 flex flex-col gap-3 transition-all duration-300">
+          
+          {/* Collapsible Header Toggle */}
+          <button
+            type="button"
+            onClick={() => setDeckOpen((prev) => !prev)}
+            className="flex items-center justify-between w-full border-b border-sky-500/15 pb-2.5 outline-none group cursor-pointer"
+          >
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse shadow-[0_0_8px_#38bdf8]" />
+              <span className="text-[11px] font-black tracking-widest text-sky-400/90 uppercase group-hover:text-sky-300 transition-colors">
+                Tactical Viewport
+              </span>
+            </div>
+            <span className="text-xs text-sky-400/80 font-mono font-bold transition-transform duration-300">
+              {deckOpen ? "▲" : "▼"}
+            </span>
+          </button>
+
+          {deckOpen && (
+            <>
+              {/* Active Targets Checkbox List */}
+              <div className="flex flex-col gap-1.5 pt-1">
+                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                  Active Targets
+                </label>
+                <div className="flex flex-col gap-1.5 max-h-36 overflow-y-auto pr-1">
+                  {loadedModelSummaries.map((m) => {
+                    const isChecked = selectedModelIds.has(m.instanceId);
+                    return (
+                      <label
+                        key={m.instanceId}
+                        onClick={() => toggleModelCheckbox(m.instanceId)}
+                        className={`flex items-center justify-between text-xs font-semibold px-3 py-2 rounded-2xl border cursor-pointer transition-all ${
+                          isChecked
+                            ? "bg-sky-500/15 border-sky-500/50 text-sky-200"
+                            : "bg-slate-900/50 border-slate-800/80 text-slate-400 hover:border-slate-700 hover:text-slate-200"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {}} // handled by wrapper label
+                            className="w-3.5 h-3.5 rounded accent-sky-400 cursor-pointer"
+                          />
+                          <span className="truncate">{m.label}</span>
+                        </div>
+                        <span className="text-[10px] font-mono text-slate-500">{m.heading}°</span>
+                      </label>
+                    );
+                  })}
+                </div>
               </div>
-            ))}
 
-            <div style={{ marginTop: 12, display: "flex", alignItems: "center", gap: 8 }}>
-              <input
-                type="range" min={0} max={359} step={1}
-                value={modelHeadingDeg}
-                onChange={e => setModelHeading(Number(e.target.value))}
-                style={{ flex: 1, accentColor: "#63b3ed", height: 4 }}
-              />
-              <span style={{
-                color: "#63b3ed", fontSize: 12, fontWeight: 700,
-                minWidth: 38, textAlign: "right",
-              }}>{modelHeadingDeg}°</span>
-            </div>
-          </div>
-        )}
+              {/* Dual Action Dock */}
+              <div className="grid grid-cols-2 gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={placementMode || controlsDisabled ? undefined : enterPlacementMode}
+                  disabled={controlsDisabled && !placementMode}
+                  className={`flex items-center justify-center gap-2 text-xs font-bold py-2.5 px-3 rounded-2xl border transition-all ${
+                    placementMode
+                      ? "bg-amber-500/20 border-amber-500/60 text-amber-300 hud-glow animate-pulse"
+                      : "bg-slate-900/80 border-slate-800 text-slate-200 hover:border-sky-500/40 hover:text-sky-300"
+                  }`}
+                >
+                  <span className="text-sm">{placementMode ? "📍" : "✦"}</span>
+                  <span>{placementMode ? "Relocating..." : "Move Object"}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => !controlsDisabled && setCompassOpen((v) => !v)}
+                  disabled={controlsDisabled}
+                  className={`flex items-center justify-center gap-2 text-xs font-bold py-2.5 px-3 rounded-2xl border transition-all ${
+                    compassOpen
+                      ? "hud-chip-active hud-glow"
+                      : "bg-slate-900/80 border-slate-800 text-slate-200 hover:border-sky-500/40 hover:text-sky-300"
+                  }`}
+                >
+                  <span
+                    style={{ transform: `rotate(${compassDisplayDeg}deg)` }}
+                    className="inline-block transition-transform duration-300"
+                  >
+                    🧭
+                  </span>
+                  <span>Orientation</span>
+                </button>
+              </div>
+
+              {/* Tactical Compass Dial with Cardinal Points & Slider */}
+              {compassOpen && !controlsDisabled && (
+                <div className="flex flex-col items-center gap-3 pt-3 border-t border-sky-500/15">
+                  <div className="compass-dial-wrap">
+                    <div className="compass-dial-ring" />
+                    <div
+                      className="compass-needle"
+                      style={{ transform: `translate(-50%, -100%) rotate(${compassDisplayDeg}deg)` }}
+                    />
+                    <div className="compass-hub" />
+
+                    {COMPASS_DIAL.map((cell) => {
+                      const isActive = compassDisplayDeg === cell.deg;
+                      return (
+                        <button
+                          key={cell.label}
+                          type="button"
+                          className={`compass-dial-btn ${isActive ? "is-active" : ""}`}
+                          style={{ left: cell.x, top: cell.y }}
+                          onClick={() => setModelHeadingForSelection(cell.deg)}
+                          title={`${cell.label} — ${cell.deg}°`}
+                        >
+                          {cell.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="w-full flex items-center gap-3 px-1">
+                    <input
+                      type="range"
+                      min={0}
+                      max={359}
+                      value={compassDisplayDeg}
+                      onChange={(e) => setModelHeadingForSelection(Number(e.target.value))}
+                      className="hud-slider flex-1 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-sky-400"
+                    />
+                    <span className="text-xs font-mono font-bold text-sky-400 min-w-[32px] text-right">
+                      {compassDisplayDeg}°
+                    </span>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
-      {/* ── Property popup ── */}
+      {/* ── TOP-RIGHT: TACTICAL CAMERA STACK ── */}
+      <div className="absolute top-5 right-5 z-20">
+        <div className="hud-glass rounded-2xl p-1.5 flex flex-col gap-1">
+          <button
+            type="button"
+            onClick={() => rotateMap(-45)}
+            title="Rotate Left 45°"
+            className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-900/50 hover:bg-sky-500/20 text-sky-400 border border-slate-800 hover:border-sky-500/40 transition-all"
+          >
+            ⟲
+          </button>
+          <button
+            type="button"
+            onClick={() => rotateMap(45)}
+            title="Rotate Right 45°"
+            className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-900/50 hover:bg-sky-500/20 text-sky-400 border border-slate-800 hover:border-sky-500/40 transition-all"
+          >
+            ⟳
+          </button>
+          <div className="h-px bg-sky-500/15 my-0.5" />
+          <button
+            type="button"
+            onClick={() => tiltMap(15)}
+            title="Tilt Angle Up"
+            className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-900/50 hover:bg-sky-500/20 text-sky-400 border border-slate-800 hover:border-sky-500/40 transition-all text-xs"
+          >
+            ▲
+          </button>
+          <button
+            type="button"
+            onClick={() => tiltMap(-15)}
+            title="Tilt Angle Down"
+            className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-900/50 hover:bg-sky-500/20 text-sky-400 border border-slate-800 hover:border-sky-500/40 transition-all text-xs"
+          >
+            ▼
+          </button>
+        </div>
+      </div>
+
+      {/* ── BOTTOM-RIGHT: ORBIT GESTURE PILL ── */}
+      <div className="absolute bottom-6 right-5 z-20">
+        <button
+          type="button"
+          onPointerDown={startDragRotate}
+          onPointerMove={moveDragRotate}
+          onPointerUp={endDragRotate}
+          onPointerCancel={endDragRotate}
+          onLostPointerCapture={endDragRotate}
+          className="hud-glass px-5 py-3 rounded-full text-xs font-bold text-slate-200 hover:text-sky-300 flex items-center gap-2.5 cursor-grab active:cursor-grabbing hover:border-sky-500/40 transition-all shadow-2xl"
+        >
+          <span className="text-sky-400 text-sm animate-pulse">↔</span> Drag to Orbit 360°
+        </button>
+      </div>
+
+      {/* ── PROPERTY METRICS POPUP ── */}
       {propertyPopup && (
-        <div style={{
-          position: "absolute",
-          left: Math.min(propertyPopup.x + 16, window.innerWidth - 280),
-          top: Math.min(propertyPopup.y + 16, window.innerHeight - 180),
-          zIndex: 20,
-          width: 240,
-          background: "rgba(10,18,35,0.95)",
-          border: "1px solid rgba(255,255,255,0.12)",
-          borderRadius: 16,
-          padding: "14px 16px",
-          color: "#f1f5f9",
-          backdropFilter: "blur(16px)",
-          boxShadow: "0 20px 60px rgba(0,0,0,0.5)",
-          pointerEvents: "none",
-        }}>
-          <div style={{ fontSize: 10, color: "rgba(255,255,255,0.35)", fontWeight: 600, letterSpacing: 1, marginBottom: 6 }}>{propertyPopup.meshName}</div>
-          <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 10, color: "#f8fafc" }}>{propertyPopup.details.name}</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-              <span style={{ color: "rgba(255,255,255,0.45)" }}>Type</span>
-              <span style={{ fontWeight: 600 }}>{propertyPopup.details.bhk}</span>
+        <div
+          className="hud-glass absolute z-30 w-64 rounded-3xl p-4 pointer-events-none transition-all duration-200"
+          style={{
+            left: Math.min(propertyPopup.x + 16, window.innerWidth - 280),
+            top: Math.min(propertyPopup.y + 16, window.innerHeight - 200),
+          }}
+        >
+          <div className="text-[9px] font-black tracking-widest text-sky-400 uppercase mb-1">
+            {propertyPopup.meshName}
+          </div>
+          <div className="text-base font-extrabold text-slate-100 mb-2">
+            {propertyPopup.details.name}
+          </div>
+          <div className="space-y-1.5 text-xs text-slate-300">
+            <div className="flex justify-between">
+              <span className="text-slate-400">Class</span>
+              <span className="font-semibold text-slate-200">{propertyPopup.details.bhk}</span>
             </div>
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
-              <span style={{ color: "rgba(255,255,255,0.45)" }}>Area</span>
-              <span style={{ fontWeight: 600 }}>{propertyPopup.details.area} sq ft</span>
+            <div className="flex justify-between">
+              <span className="text-slate-400">Footprint</span>
+              <span className="font-semibold text-slate-200">{propertyPopup.details.area} sq ft</span>
             </div>
-            <div style={{ marginTop: 8, padding: "7px 10px", borderRadius: 10, background: "rgba(99,179,237,0.15)", border: "1px solid rgba(99,179,237,0.25)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ fontSize: 11, color: "rgba(255,255,255,0.5)" }}>Price</span>
-              <span style={{ fontSize: 15, fontWeight: 800, color: "#63b3ed" }}>{propertyPopup.details.price}</span>
+            <div className="mt-3 p-2.5 rounded-2xl bg-sky-500/10 border border-sky-500/20 flex justify-between items-center">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Valuation</span>
+              <span className="text-sky-400 font-black text-sm">{propertyPopup.details.price}</span>
             </div>
           </div>
         </div>
       )}
 
-      <div ref={mapDiv} onClick={handleScenePick} style={{ width: "100%", height: "100%", cursor: placementMode ? "crosshair" : "default" }} />
+      {/* ── THREE.JS Google Map Container ── */}
+      <div
+        ref={mapDiv}
+        onClick={handleScenePick}
+        className={`w-full h-full ${placementMode ? "cursor-crosshair" : "cursor-default"}`}
+      />
 
-      {/* Completely separate canvas/renderer/camera — mounted only while open. */}
+      {/* Secondary Overlay Canvas */}
       {viewerModel && (
         <ModelViewerOverlay
           model={viewerModel}
