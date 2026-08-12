@@ -11,7 +11,7 @@ import { HotspotManager } from "../three/HotspotManager";
 import HotspotEditorPanel from "./HotspotEditorPanel";
 
 import { HotspotConfig } from "../types/hotspot";
-import seedHotspotsData from "../data/hotspots.json";
+import { getViewerHotspotsForModel } from "../data/viewerHotspots";
 
 interface ModelViewerProps {
   modelUrl: string;
@@ -19,24 +19,16 @@ interface ModelViewerProps {
   initialHotspots?: HotspotConfig[];
 }
 
-// Convert seed JSON data (plain x/y/z objects) into THREE.Vector3
-// HotspotConfig objects. Cloned per-mount so two instances of this
-// component never share the same underlying Vector3 objects.
-function parseSeedHotspots(): HotspotConfig[] {
-  return seedHotspotsData.hotspots.map((h) => ({
-    id: h.id,
-    label: h.label,
-    position: new THREE.Vector3(h.position.x, h.position.y, h.position.z),
-    cameraPosition: new THREE.Vector3(h.cameraPosition.x, h.cameraPosition.y, h.cameraPosition.z),
-    cameraTarget: new THREE.Vector3(h.cameraTarget.x, h.cameraTarget.y, h.cameraTarget.z),
-  }));
-}
-
 export default function ModelViewer({
   modelUrl,
   onBack,
-  initialHotspots = parseSeedHotspots(),
+  initialHotspots,
 }: ModelViewerProps) {
+  // Resolve the hotspot list from the actual model URL every time the
+  // model changes. This way clicking an entry hotspot on the map that
+  // opens the apartment loads the apartment's own hotspot camera
+  // presets (hotspots.json), not the house's.
+  const resolvedHotspots = initialHotspots ?? getViewerHotspotsForModel(modelUrl);
   const mountRef = useRef<HTMLDivElement>(null);
   const hotspotManagerRef = useRef<HotspotManager | null>(null);
   const cameraControllerRef = useRef<CameraController | null>(null);
@@ -44,7 +36,7 @@ export default function ModelViewer({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editMode, setEditMode] = useState(false);
-  const [hotspots, setHotspots] = useState<HotspotConfig[]>(initialHotspots);
+  const [hotspots, setHotspots] = useState<HotspotConfig[]>(resolvedHotspots);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   // Refs that stay in sync with state so the pointerdown listener added in
@@ -89,15 +81,25 @@ export default function ModelViewer({
 
         viewer.scene.add(model);
 
-        hotspotManager = new HotspotManager(model, initialHotspots);
+        hotspotManager = new HotspotManager(model, resolvedHotspots);
         hotspotManagerRef.current = hotspotManager;
 
         setHotspots(hotspotManager.getHotspots());
         setLoading(false);
 
-        // Reproduce the original auto-framing: position the camera to the
-        // living room / main room area from front eye-level.
-        cameraController.frameModel(size, center);
+        if (resolvedHotspots.length > 0) {
+          // Opening a model from a map hotspot should land the camera
+          // directly on the FIRST hotspot's saved angle, so the user
+          // immediately sees the unit/location they clicked instead of
+          // a generic overview. Plain instant placement — the cinematic
+          // tween is reserved for clicking hotspots inside the viewer.
+          cameraController.setCameraPreset(resolvedHotspots[0]);
+        } else {
+          // No registered hotspot presets for this model — reproduce the
+          // original auto-framing: position the camera to the living
+          // room / main room area from front eye-level.
+          cameraController.frameModel(size, center);
+        }
       } catch (err) {
         console.error("Model loading failed:", err);
         setError("Failed to load model.");

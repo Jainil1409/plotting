@@ -14,6 +14,9 @@ export class CameraController {
 
     this.controls = new OrbitControls(this.camera, renderer.domElement);
     this.controls.enableDamping = true;
+    // Slightly higher than the Three.js default (0.05) so manual
+    // rotation/pan feels floaty and smooth rather than snappy/jittery.
+    this.controls.dampingFactor = 0.12;
     this.controls.enablePan = true;
     this.controls.enableZoom = true;
     this.controls.enableRotate = true;
@@ -61,25 +64,59 @@ export class CameraController {
     this.controls.update();
   }
 
+  // Immediately place the camera at a hotspot's recorded preset — used
+  // when a model is first opened (e.g. from a map hotspot) so the viewer
+  // "directly shows" that hotspot at its saved angle on load.
+  setCameraPreset(hotspot: HotspotConfig) {
+    gsap.killTweensOf(this.camera.position);
+    gsap.killTweensOf(this.controls.target);
+
+    this.camera.position.copy(hotspot.cameraPosition);
+    this.controls.target.copy(hotspot.cameraTarget);
+    this.camera.lookAt(this.controls.target);
+    this.controls.update();
+  }
+
   // Camera preset transition — moves the camera/controls target, never
   // the apartment model. Model stays fixed; camera rotates around it.
+  //
+  // Smoothness notes:
+  //  - A slower, gentler "expo.inOut" ease gives a cinematic settle
+  //    instead of the old snappy power2 curve.
+  //  - OrbitControls damping is temporarily disabled during the tween so
+  //    the controls' momentum doesn't fight the animation (which is what
+  //    made the previous 1.2s tween feel choppy while rotating). It is
+  //    re-enabled once the transition completes.
+  //  - Any in-flight tween is killed first, so rapid clicks always start
+  //    from the CURRENT camera state rather than a stale one.
   goToHotspot(hotspot: HotspotConfig) {
+    gsap.killTweensOf(this.camera.position);
+    gsap.killTweensOf(this.controls.target);
+
+    const duration = 1.6;
+    const ease = "expo.inOut";
+
+    this.controls.enableDamping = false;
+
     gsap.to(this.camera.position, {
       x: hotspot.cameraPosition.x,
       y: hotspot.cameraPosition.y,
       z: hotspot.cameraPosition.z,
-      duration: 1.2,
-      ease: "power2.inOut",
+      duration,
+      ease,
+      onUpdate: () => {
+        this.controls.update();
+      },
     });
 
     gsap.to(this.controls.target, {
       x: hotspot.cameraTarget.x,
       y: hotspot.cameraTarget.y,
       z: hotspot.cameraTarget.z,
-      duration: 1.2,
-      ease: "power2.inOut",
-      onUpdate: () => {
-        this.controls.update();
+      duration,
+      ease,
+      onComplete: () => {
+        this.controls.enableDamping = true;
       },
     });
   }
