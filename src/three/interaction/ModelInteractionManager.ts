@@ -119,11 +119,73 @@ export class ModelInteractionManager {
 
     this.raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
 
+    // Refresh the pivot's world matrix AND its whole descendant subtree
+    // BEFORE raycasting, just like pickMesh() does. The Google Maps
+    // WebGLOverlayView sets the camera projection matrix per frame, and
+    // the model sits under a nested pivot -> centerGroup -> model chain.
+    // If the meshes' world matrices are stale, intersectObject() returns
+    // zero hits and we'd never be able to place a hotspot on the surface.
+    pivot.updateMatrixWorld(true);
+
     const hits = this.raycaster.intersectObject(pivot, true);
 
-    if (hits.length === 0) return null;
+    if (hits.length > 0) {
+      return pivot.worldToLocal(hits[0].point.clone());
+    }
 
-    return pivot.worldToLocal(hits[0].point.clone());
+    // ── Google Maps WebGLOverlayView projection fallback ──
+    // Raycasting against the model is unreliable under Google's
+    // transformer-driven camera (same reason hotspot picking and mesh
+    // picking both use screen-space distance checks). Fall back to the
+    // proven technique: project each mesh's bounding-sphere center onto
+    // the screen, find the mesh nearest to the click, and use its
+    // surface point (converted to pivot-local space) as the hotspot
+    // position.
+    const localX = event.clientX - rect.left;
+    const localY = event.clientY - rect.top;
+
+    const meshes: THREE.Mesh[] = [];
+    pivot.traverse((obj) => {
+      if ((obj as THREE.Mesh).isMesh) meshes.push(obj as THREE.Mesh);
+    });
+
+    let bestMesh: THREE.Mesh | null = null;
+    let bestScore = Infinity;
+
+    for (const mesh of meshes) {
+      const geometry = mesh.geometry as THREE.BufferGeometry;
+      if (!geometry) continue;
+      if (!geometry.boundingSphere) geometry.computeBoundingSphere();
+      if (!geometry.boundingSphere) continue;
+
+      const centerWorld = geometry.boundingSphere.center
+        .clone()
+        .applyMatrix4(mesh.matrixWorld);
+
+      const clip = centerWorld.clone().applyMatrix4(camera.projectionMatrix);
+
+      if (clip.z < -1 || clip.z > 1) continue;
+
+      const screenX = (clip.x * 0.5 + 0.5) * rect.width;
+      const screenY = (-clip.y * 0.5 + 0.5) * rect.height;
+
+      const dist = Math.hypot(screenX - localX, screenY - localY);
+      if (dist > 60) continue;
+
+      if (dist < bestScore) {
+        bestScore = dist;
+        bestMesh = mesh;
+      }
+    }
+
+    if (!bestMesh) return null;
+
+    const bestGeometry = bestMesh.geometry as THREE.BufferGeometry;
+    const surfaceWorld = bestGeometry.boundingSphere!.center
+      .clone()
+      .applyMatrix4(bestMesh.matrixWorld);
+
+    return pivot.worldToLocal(surfaceWorld.clone());
   }
 
   private pickMeshByProjectedCenter(

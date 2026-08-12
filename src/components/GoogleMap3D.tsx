@@ -18,8 +18,10 @@ import { ModelInteractionManager, PropertyPopup } from "@/src/three/interaction/
 
 import { PROPERTY_DETAILS } from "@/src/data/properties";
 import { HOTSPOTS } from "@/src/data/hotspots";
+import { MapHotspotConfig } from "@/src/types/hotspot";
 import {
   DEFAULT_MODEL_INSTANCE_ID,
+  MODELS,
   getInitialModelConfigs,
   getModelConfig,
   getModelDefinition,
@@ -95,6 +97,20 @@ export default function GoogleMap3D() {
   );
   const [placementMode, setPlacementMode] = useState(false);
   const placementModeRef = useRef(false);
+
+  // Dynamic map-hotspot creation: when hotspotPlacementMode is on, clicking
+  // a model surface places a new hotspot there. The hotspot links to the
+  // model chosen in hotspotNextModelId (defaults to the model's own id).
+  const [hotspotPlacementMode, setHotspotPlacementMode] = useState(false);
+  const hotspotPlacementModeRef = useRef(false);
+  const [hotspotNextModelId, setHotspotNextModelId] = useState<string>(
+    DEFAULT_MODEL_CONFIG.modelId
+  );
+  const hotspotNextModelIdRef = useRef<string>(DEFAULT_MODEL_CONFIG.modelId);
+  useEffect(() => {
+    hotspotNextModelIdRef.current = hotspotNextModelId;
+  }, [hotspotNextModelId]);
+  const createdHotspotsRef = useRef<MapHotspotConfig[]>([]);
   const [propertyPopup, setPropertyPopup] = useState<PropertyPopup | null>(null);
   const [, setModelHeadingDeg] = useState(MODEL_HEADING);
   const [compassOpen, setCompassOpen] = useState(false);
@@ -331,6 +347,25 @@ export default function GoogleMap3D() {
     });
   };
 
+  const enterHotspotPlacementMode = () => {
+    // Disable the model-move placement mode if it happens to be active so
+    // the two "click-to-place" flows never fight over the same click.
+    if (placementListenerRef.current) {
+      window.google.maps.event.removeListener(placementListenerRef.current);
+      placementListenerRef.current = null;
+    }
+    placementModeRef.current = false;
+    setPlacementMode(false);
+
+    hotspotPlacementModeRef.current = true;
+    setHotspotPlacementMode(true);
+  };
+
+  const exitHotspotPlacementMode = () => {
+    hotspotPlacementModeRef.current = false;
+    setHotspotPlacementMode(false);
+  };
+
   const handleScenePick = (event: ReactMouseEvent<HTMLDivElement>) => {
     if (placementModeRef.current) return;
     const renderer = rendererRef.current;
@@ -356,6 +391,51 @@ export default function GoogleMap3D() {
     if (hotspot) {
       const nextModel = getModelDefinition(hotspot.nextModelId);
       if (nextModel) setViewerModel(nextModel);
+      return;
+    }
+
+    // ── DYNAMIC HOTSPOT CREATION ──
+    // When hotspot placement mode is on, a click on a model surface (that
+    // didn't hit an existing hotspot) creates a new map hotspot at that
+    // exact surface point, linked to the model selected in the HUD.
+    if (hotspotPlacementModeRef.current) {
+      const instanceId = activeModelInstanceIdRef.current;
+      const loaded = modelManagerRef.current.getModel(instanceId);
+      const fallback = modelManagerRef.current.getAllModels()[0];
+      const target = loaded ?? fallback;
+      if (!target) return;
+
+      const local = interactionManagerRef.current?.calibrateLocalPosition(
+        nativeEvent,
+        camera,
+        target.pivot,
+        mapElement
+      );
+      if (!local) return;
+
+      const id =
+        typeof window !== "undefined"
+          ? `map-hotspot-${Date.now()}`
+          : `map-hotspot-${Math.floor(Math.random() * 1e9)}`;
+
+      const newHotspot: MapHotspotConfig = {
+        id,
+        modelInstanceId: target.instanceId,
+        position: { x: local.x, y: local.y, z: local.z },
+        nextModelId: hotspotNextModelIdRef.current,
+      };
+
+      const handle = hotspotManagerRef.current.createHotspot(newHotspot);
+      hotspotManagerRef.current.attachHotspot(target.pivot, handle);
+      hotspotManagerRef.current.update(
+        clockRef.current.getElapsedTime()
+      );
+
+      createdHotspotsRef.current = [...createdHotspotsRef.current, newHotspot];
+
+      // Stay in placement mode so the user can drop several hotspots in a
+      // row; they turn it off with the HUD Toggle button.
+      renderer.requestRedraw();
       return;
     }
 
@@ -646,6 +726,46 @@ export default function GoogleMap3D() {
                   </span>
                   <span>Orientation</span>
                 </button>
+              </div>
+
+              {/* Dynamic Hotspot Creation Dock */}
+              <div className="flex flex-col gap-2 pt-1 border-t border-sky-500/15">
+                <button
+                  type="button"
+                  onClick={
+                    hotspotPlacementMode
+                      ? exitHotspotPlacementMode
+                      : placementMode || controlsDisabled
+                      ? undefined
+                      : enterHotspotPlacementMode
+                  }
+                  disabled={controlsDisabled && !hotspotPlacementMode}
+                  className={`flex items-center justify-center gap-2 text-xs font-bold py-2.5 px-3 rounded-2xl border transition-all ${
+                    hotspotPlacementMode
+                      ? "bg-emerald-500/20 border-emerald-500/60 text-emerald-300 hud-glow animate-pulse"
+                      : "bg-slate-900/80 border-slate-800 text-slate-200 hover:border-emerald-500/40 hover:text-emerald-300"
+                  }`}
+                >
+                  <span className="text-sm">{hotspotPlacementMode ? "📍" : "🔗"}</span>
+                  <span>{hotspotPlacementMode ? "Placing hotspot..." : "Add Hotspot"}</span>
+                </button>
+
+                {hotspotPlacementMode && (
+                  <label className="flex items-center justify-between gap-2 text-xs font-semibold px-3 py-2 rounded-2xl border border-slate-800/80 bg-slate-900/50 text-slate-300">
+                    <span className="shrink-0">Links to</span>
+                    <select
+                      value={hotspotNextModelId}
+                      onChange={(e) => setHotspotNextModelId(e.target.value)}
+                      className="flex-1 min-w-0 bg-transparent text-slate-100 font-bold outline-none cursor-pointer text-right select-text"
+                    >
+                      {Object.values(MODELS).map((model) => (
+                        <option key={model.id} value={model.id} className="bg-slate-900 text-slate-100">
+                          {model.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
               </div>
 
               {/* Tactical Compass Dial with Cardinal Points & Slider */}
