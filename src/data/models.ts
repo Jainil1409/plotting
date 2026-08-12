@@ -27,6 +27,15 @@ export const MODELS = {
     defaultScale: 90,
     defaultHeading: 0,
   },
+
+  realistic_house_with_interior: {
+    id: "realistic_house_with_interior",
+    label: "Realistic House with Interior",
+    modelUrl: "/model/realistic_house_with_interior.glb",
+    defaultScale: 90,
+    defaultHeading: 0,
+  },
+
 } as const satisfies Record<string, ModelDefinition>;
 
 export type ModelId = keyof typeof MODELS;
@@ -37,6 +46,16 @@ export const MODEL_INSTANCES = {
     modelId: "house",
     anchor: DEFAULT_MODEL_ANCHOR,
     hotspotSetId: "house-main",
+  },
+  "realistic_house_with_interior-main": {
+    instanceId: "realistic_house_with_interior-main",
+    modelId: "realistic_house_with_interior",
+    anchor:{
+      lat: 23.0225,
+      lng: 72.5714,
+      altitude: 0,
+    },
+    hotspotSetId: "realistic_house_with_interior-main",
   },
 } as const satisfies Record<string, ModelInstanceDefinition<ModelId>>;
 
@@ -49,7 +68,8 @@ export function getModelDefinition(modelId: string): ModelDefinition | null {
 }
 
 export function getModelConfig(instanceId: string): ModelConfig | null {
-  const instance = MODEL_INSTANCES[instanceId as ModelInstanceId];
+  const instance: ModelInstanceDefinition<ModelId> | undefined =
+    MODEL_INSTANCES[instanceId as ModelInstanceId];
 
   if (!instance) return null;
 
@@ -66,7 +86,7 @@ export function getModelConfig(instanceId: string): ModelConfig | null {
     heading: normalizedInstance.heading ?? model.defaultHeading,
     scale: normalizedInstance.scale ?? model.defaultScale,
     hotspotSetId: instance.hotspotSetId ?? instance.instanceId,
-  };
+  };    
 }
 
 export function getInitialModelConfigs(): ModelConfig[] {
