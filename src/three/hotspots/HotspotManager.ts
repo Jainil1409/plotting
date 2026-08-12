@@ -26,14 +26,27 @@ export class HotspotManager {
     group.userData.modelInstanceId = config.modelInstanceId;
 
     const core = new THREE.Mesh(
-      new THREE.SphereGeometry(1.2, 32, 32),
+      new THREE.CircleGeometry(1.2, 32),
       new THREE.MeshBasicMaterial({
         color: HOTSPOT_ACCENT,
         transparent: true,
         opacity: 0.95,
+        side: THREE.DoubleSide,
         depthTest: false,
+        // depthTest:false with the DEFAULT depthWrite:true is an
+        // inconsistent combo: this mesh ignores the depth buffer when
+        // deciding whether to draw, but still writes into it — which
+        // produces frame-to-frame inconsistent occlusion against
+        // whatever else touches that buffer (Maps' own layers, or the
+        // other two rings). depthWrite:false matches the "always on
+        // top, never occluded" behavior depthTest:false already implies.
+        depthWrite: false,
       })
     );
+
+    core.rotation.x = -Math.PI / 2;
+
+    core.position.z = 0.01;
 
     core.renderOrder = 999;
 
@@ -47,12 +60,15 @@ export class HotspotManager {
         opacity: 0.5,
         side: THREE.DoubleSide,
         depthTest: false,
+        depthWrite: false,
       })
     );
 
     ring.rotation.x = -Math.PI / 2;
 
-    ring.renderOrder = 999;
+    ring.position.z = 0.03;
+
+    ring.renderOrder = 1001;
 
     group.add(ring);
 
@@ -64,12 +80,15 @@ export class HotspotManager {
         opacity: 0.9,
         side: THREE.DoubleSide,
         depthTest: false,
+        depthWrite: false,
       })
     );
 
     edgeRing.rotation.x = -Math.PI / 2;
 
-    edgeRing.renderOrder = 999;
+    edgeRing.position.z = 0.02;
+
+    edgeRing.renderOrder = 1000;
 
     group.add(edgeRing);
 
@@ -231,10 +250,21 @@ export class HotspotManager {
       const parent = hotspot.group.parent;
       if (!parent) return;
 
-      // ── Keep the hotspot at a FIXED world position regardless of the
-      //    model's heading rotation. The hotspot's local position is
-      //    counter-rotated around the parent's origin so that the world
-      //    position stays the same even when the pivot rotates. ──
+      // Force the parent's world matrix current BEFORE reading it below.
+      // getWorldQuaternion() reads parent.matrixWorld, which is only
+      // correct if updateMatrixWorld() already ran on the parent chain
+      // this frame. If this update() runs before the map's own
+      // heading/tilt transform is finalized for the frame, this was
+      // reading LAST frame's rotation — counter-rotating a razor-thin
+      // flat disc against a one-frame-stale parent orientation is
+      // exactly what produces the crescent/pac-man clipping in the
+      // screenshot: a paper-thin plane is extremely sensitive to even
+      // small orientation lag when viewed near edge-on.
+      // updateWorldMatrix(true, false): walk up (update ancestors),
+      // don't walk down (don't touch children — we do that ourselves
+      // right after).
+      parent.updateWorldMatrix(true, false);
+
       const parentWorldQuat = new THREE.Quaternion();
       parent.getWorldQuaternion(parentWorldQuat);
 
@@ -248,6 +278,13 @@ export class HotspotManager {
 
       // Counter-rotate so hotspot stays upright regardless of parent rotation
       hotspot.group.quaternion.copy(parentWorldQuat.clone().invert());
+
+      // The group's own matrixWorld also needs to be refreshed now that
+      // we've changed its local position/quaternion directly, since
+      // pickHotspotAt()/pickHotspotByScreenDistance() read
+      // group.getWorldPosition() and may run before the renderer's next
+      // automatic updateMatrixWorld() pass.
+      hotspot.group.updateMatrixWorld(true);
     });
   }
 

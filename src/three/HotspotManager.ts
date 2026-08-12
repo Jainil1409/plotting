@@ -43,12 +43,20 @@ export class HotspotManager {
     this.model.add(anchor);
 
     const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(0.18, 20, 20),
-      new THREE.MeshBasicMaterial({ color: UNSELECTED_COLOR })
+      new THREE.CircleGeometry(0.18, 32),
+      new THREE.MeshBasicMaterial({
+        color: UNSELECTED_COLOR,
+        side: THREE.DoubleSide,
+        depthTest: true,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+      })
     );
     mesh.name = `hotspot-${config.id}`;
     mesh.userData.roomId = config.id;
     mesh.userData.label = config.label;
+    mesh.rotation.x = -Math.PI / 2;
     anchor.add(mesh);
 
     this.hotspotObjects.push(mesh);
