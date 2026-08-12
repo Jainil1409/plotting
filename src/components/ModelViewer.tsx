@@ -53,6 +53,18 @@ export default function ModelViewer({
     selectedIdRef.current = selectedId;
   }, [selectedId]);
 
+  // Turning OFF edit mode (closing the sidebar OR toggling "Edit hotspots"
+  // off) should also drop the current selection — otherwise the selected
+  // marker stays highlighted yellow on the model after the editor closes.
+  // Done explicitly here in the handlers (not via a reactive effect on
+  // editMode) so it can never fire while the user is actively selecting
+  // hotspots inside the editor.
+  const exitEditMode = () => {
+    setEditMode(false);
+    setSelectedId(null);
+    hotspotManagerRef.current?.clearSelection();
+  };
+
   useEffect(() => {
     if (!mountRef.current) return;
 
@@ -259,7 +271,7 @@ export default function ModelViewer({
 
       <button
         type="button"
-        onClick={() => setEditMode((v) => !v)}
+        onClick={() => (editMode ? exitEditMode() : setEditMode(true))}
         style={{
           position: "absolute",
           top: 16,
@@ -330,7 +342,7 @@ export default function ModelViewer({
           onRename={renameHotspot}
           onDelete={deleteHotspot}
           onExport={exportJSON}
-          onClose={() => setEditMode(false)}
+          onClose={exitEditMode}
         />
       )}
 

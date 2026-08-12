@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { HotspotConfig } from "../types/hotspot";
 
 interface Props {
@@ -50,6 +51,17 @@ export default function HotspotEditorPanel({
 }: Props) {
   const selectedHotspot = hotspots.find((hotspot) => hotspot.id === selectedId) ?? null;
   const total = hotspots.length;
+  const selectedCardRef = useRef<HTMLDivElement>(null);
+
+  // When a hotspot is selected/tapped (in the list or on the model), the
+  // detail card below needs to be visible — auto-scroll the body so the
+  // card is never hidden below the fold.
+  useEffect(() => {
+    selectedCardRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+    });
+  }, [selectedId, selectedHotspot]);
 
   return (
     <>
@@ -90,7 +102,12 @@ export default function HotspotEditorPanel({
         }
 
         .ed-inner, .ed-inner * { box-sizing: border-box; }
-        .ed-inner { display: flex; flex-direction: column; height: 100%; overflow-y: auto; }
+        .ed-inner { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+
+        /* Only the body scrolls — the header and the export button stay
+           pinned. That way the detail card below the Points list is never
+           pushed out of view by the panel overflowing. */
+        .ed-body { flex: 1; overflow-y: auto; min-height: 0; }
 
         /* ---- Header ---- */
         .ed-header {
@@ -334,7 +351,7 @@ export default function HotspotEditorPanel({
             </div>
 
             {selectedHotspot ? (
-              <div className="ed-card">
+              <div className="ed-card" ref={selectedCardRef}>
                 <label className="ed-field">
                   <span className="ed-field-label">Name</span>
                   <input
