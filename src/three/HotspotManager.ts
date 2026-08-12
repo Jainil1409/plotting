@@ -144,21 +144,14 @@ export class HotspotManager {
     const worldPoint = modelHits[0].point.clone();
     const localPoint = this.model.worldToLocal(worldPoint.clone());
 
-    // Default the camera preset to a close-up view CENTERED ON
-    // the exact point you clicked — not whatever the camera
-    // happened to be doing at click time.
-    const defaultDistance = 2.5;
-    const viewDirection = new THREE.Vector3().subVectors(camera.position, worldPoint);
-    if (viewDirection.lengthSq() < 1e-6) {
-      // Degenerate case: camera sitting exactly on the clicked
-      // point. Fall back to a generic "slightly above and in
-      // front" direction instead of producing a NaN offset.
-      viewDirection.set(0, 0.4, 1);
-    }
-    viewDirection.normalize();
-
-    const defaultCameraPosition = worldPoint.clone().addScaledVector(viewDirection, defaultDistance);
-    defaultCameraPosition.y += 0.4; // slight eye-level lift
+    // Save the CURRENT camera position, not a synthetic close-up.
+    // The previous behavior computed a fixed 2.5-unit offset from
+    // the clicked point — so if the user placed the hotspot from a
+    // farther view, clicking it later flew the camera in much
+    // closer than the view they actually created it in (an
+    // unexpected "zoom in" jump). Using the real camera position
+    // preserves the exact distance/zoom at creation time.
+    const defaultCameraPosition = camera.position.clone();
 
     const id = `hotspot-${Date.now()}`;
     const newHotspot: HotspotConfig = {
