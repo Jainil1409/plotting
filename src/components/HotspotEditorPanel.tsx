@@ -7,21 +7,12 @@ interface Props {
   selectedId: string | null;
   onSelect: (id: string) => void;
   onRename: (id: string, label: string) => void;
-  onCapture: (id: string) => void;
   onDelete: (id: string) => void;
   onExport: () => void;
   onClose: () => void;
 }
 
 type IconProps = { size?: number };
-
-const LensIcon = ({ size = 14 }: IconProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <rect x="2.5" y="6.5" width="19" height="12.5" rx="2" />
-    <path d="M8 6.5 9.4 4h5.2L16 6.5" />
-    <circle cx="12" cy="12.5" r="3.4" />
-  </svg>
-);
 
 const TrashIcon = ({ size = 14 }: IconProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -53,7 +44,6 @@ export default function HotspotEditorPanel({
   selectedId,
   onSelect,
   onRename,
-  onCapture,
   onDelete,
   onExport,
   onClose,
@@ -161,22 +151,14 @@ export default function HotspotEditorPanel({
           margin-bottom: 10px;
         }
 
-        /* ---- Log: numbered dots on a connecting path line ----
-           Each row draws its OWN short connector segment down into the
-           next row's dot, instead of one long overlay line spanning the
-           whole list. A single overlay sized with top/bottom against
-           .ed-log's capped max-height only ever spans that fixed
-           viewport height, not the full scrollable content — which is
-           exactly why the line stopped appearing after ~5 items. Per-row
-           segments scale to any number of hotspots automatically. */
         .ed-log { position: relative; display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; }
         .ed-row:not(:last-child)::after {
           content: "";
           position: absolute;
-          left: 20px; /* aligns with the 32px dot's center (4px padding-left + 16px half-width) */
-          top: 40px;  /* bottom edge of this row's dot (8px padding-top + 32px dot height) */
+          left: 20px;
+          top: 40px;
           width: 1.5px;
-          height: 26px; /* reaches through the row gap into the next row's dot, which sits above it via z-index */
+          height: 26px;
           background: #dcdfdb;
           z-index: 0;
           transform: translateX(-0.75px);
@@ -268,7 +250,7 @@ export default function HotspotEditorPanel({
         }
         .ed-coord-axis { color: #9aa0a6; font-weight: 500; }
 
-        .ed-actions { display: flex; gap: 8px; }
+        .ed-actions { display: flex; justify-content: flex-end; }
         .ed-btn {
           display: inline-flex;
           align-items: center;
@@ -284,9 +266,6 @@ export default function HotspotEditorPanel({
           transition: background 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
         }
         .ed-btn:focus-visible { outline: 2px solid #0f7a72; outline-offset: 2px; }
-
-        .ed-btn-primary { flex: 1; background: #0f7a72; color: #ffffff; }
-        .ed-btn-primary:hover { background: #0c645e; }
 
         .ed-btn-danger { background: transparent; color: #b3261e; padding: 9px 10px; }
         .ed-btn-danger:hover { background: rgba(179,38,30,0.08); }
@@ -340,12 +319,6 @@ export default function HotspotEditorPanel({
                 <div className="ed-log">
                   {hotspots.map((h, i) => (
                     <button
-                      // id+index, not just id: if two hotspots ever share
-                      // an id (see the Date.now() collision note above),
-                      // a bare key={h.id} causes React to reuse/misplace
-                      // DOM nodes between them — this only fixes the
-                      // rendering symptom, the underlying onSelect/onDelete
-                      // calls still operate on the (possibly colliding) id.
                       key={`${h.id}::${i}`}
                       type="button"
                       className={`ed-row${h.id === selectedId ? " is-selected" : ""}`}
@@ -380,16 +353,10 @@ export default function HotspotEditorPanel({
                 </div>
 
                 <div className="ed-actions">
-                  
                   <button
                     type="button"
                     className="ed-btn ed-btn-danger"
                     onClick={(e) => {
-                      // Defensive only — stops the click from bubbling in
-                      // case something underneath this panel (e.g. the 3D
-                      // canvas) is also listening. This is NOT a confirmed
-                      // fix; I can't see your parent's onDelete wiring or
-                      // your DOM structure from this file alone.
                       e.stopPropagation();
                       onDelete(selectedHotspot.id);
                     }}
@@ -400,7 +367,7 @@ export default function HotspotEditorPanel({
                 </div>
               </div>
             ) : total > 0 ? (
-              <div className="ed-empty">Select a point from the list to rename it, capture the current camera view, or remove it.</div>
+              <div className="ed-empty">Select a point from the list to rename or remove it.</div>
             ) : null}
           </div>
 
