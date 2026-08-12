@@ -111,6 +111,12 @@ export default function ModelViewer({
     const handlePointerDown = (event: PointerEvent) => {
       if (!hotspotManager || !cameraController) return;
 
+      // If the user grabs the camera while a hotspot transition is still
+      // tweening, gsap and OrbitControls fight over camera.position every
+      // frame — that fight is what causes the glitching/jitter. Cancel any
+      // in-flight transition immediately so the user's drag takes over.
+      cameraController.cancelTransition();
+
       // Use the ref so we always read the CURRENT edit-mode value instead of
       // the stale one captured when the effect first ran.
       const result = hotspotManager.handleClick(
@@ -124,6 +130,13 @@ export default function ModelViewer({
         if (result.hotspot) {
           cameraController.goToHotspot(result.hotspot);
         }
+        // This handler runs in the CAPTURE phase (listener added with
+        // capture:true), so stopping propagation here prevents OrbitControls
+        // — which listens on the same canvas in the bubble phase — from ALSO
+        // starting a drag on this pointerdown. Without this, both gsap and
+        // OrbitControls write camera.position during the transition and the
+        // camera glitches/jitters while rotating.
+        event.stopImmediatePropagation();
         return;
       }
 
@@ -138,11 +151,22 @@ export default function ModelViewer({
       }
     };
 
-    viewer.renderer.domElement.addEventListener("pointerdown", handlePointerDown);
+    // Capture phase so hotspot handling runs BEFORE OrbitControls. When a
+    // hotspot is clicked, stopImmediatePropagation() prevents OrbitControls
+    // from also starting a drag on the same pointerdown (the two fighting is
+    // what caused the rotation glitch). For normal drags (no hotspot hit) the
+    // event still reaches OrbitControls normally.
+    viewer.renderer.domElement.addEventListener("pointerdown", handlePointerDown, true);
 
     const animate = () => {
       animationId = requestAnimationFrame(animate);
       cameraController.update();
+
+      // Keep every hotspot marker billboarded toward the camera and lifted
+      // off its surface normal — this is what keeps them flicker-free flat
+      // 2D circles during a 360° rotation.
+      hotspotManager?.updateMarkers(cameraController.camera);
+
       viewer.render(cameraController.camera);
     };
 
@@ -163,7 +187,7 @@ export default function ModelViewer({
       cancelAnimationFrame(animationId);
       window.removeEventListener("resize", resize);
 
-      viewer.renderer.domElement.removeEventListener("pointerdown", handlePointerDown);
+      viewer.renderer.domElement.removeEventListener("pointerdown", handlePointerDown, true);
 
       hotspotManager?.dispose();
       cameraController.dispose();
