@@ -51,7 +51,7 @@ export const MODEL_INSTANCES = {
     instanceId: "realistic_house_with_interior-main",
     modelId: "realistic_house_with_interior",
     anchor:{
-      lat: 23.0225,
+      lat: 23.0235,
       lng: 72.5714,
       altitude: 0,
     },

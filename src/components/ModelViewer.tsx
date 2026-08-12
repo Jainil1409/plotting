@@ -151,6 +151,17 @@ export default function ModelViewer({
       }
     };
 
+    // If the user zooms (mouse wheel / trackpad) while a hotspot camera
+    // transition is still tweening, gsap writes camera.position every frame
+    // while OrbitControls' wheel handler ALSO moves the camera. That fight
+    // is what causes the first-zoom flicker. Cancelling in the CAPTURE phase
+    // (before OrbitControls' bubble-phase wheel handler runs) lets the user's
+    // zoom take over cleanly instead of jittering against the running tween.
+    const handleWheel = () => {
+      cameraController.cancelTransition();
+    };
+    viewer.renderer.domElement.addEventListener("wheel", handleWheel, true);
+
     // Capture phase so hotspot handling runs BEFORE OrbitControls. When a
     // hotspot is clicked, stopImmediatePropagation() prevents OrbitControls
     // from also starting a drag on the same pointerdown (the two fighting is
@@ -188,6 +199,7 @@ export default function ModelViewer({
       window.removeEventListener("resize", resize);
 
       viewer.renderer.domElement.removeEventListener("pointerdown", handlePointerDown, true);
+      viewer.renderer.domElement.removeEventListener("wheel", handleWheel, true);
 
       hotspotManager?.dispose();
       cameraController.dispose();
@@ -206,15 +218,6 @@ export default function ModelViewer({
   const renameHotspot = (id: string, label: string) => {
     hotspotManagerRef.current?.rename(id, label);
     setHotspots(hotspotManagerRef.current?.getHotspots() ?? []);
-  };
-
-  const captureCamera = (id: string) => {
-    const manager = hotspotManagerRef.current;
-    const cameraController = cameraControllerRef.current;
-    if (!manager || !cameraController) return;
-
-    manager.captureCamera(id, cameraController.camera, cameraController.controls);
-    setHotspots(manager.getHotspots());
   };
 
   const deleteHotspot = (id: string) => {
@@ -325,7 +328,6 @@ export default function ModelViewer({
           selectedId={selectedId}
           onSelect={selectHotspot}
           onRename={renameHotspot}
-          onCapture={captureCamera}
           onDelete={deleteHotspot}
           onExport={exportJSON}
           onClose={() => setEditMode(false)}
