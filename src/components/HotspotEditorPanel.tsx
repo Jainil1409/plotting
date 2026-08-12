@@ -161,15 +161,25 @@ export default function HotspotEditorPanel({
           margin-bottom: 10px;
         }
 
-        /* ---- Log: numbered dots on a connecting path line ---- */
+        /* ---- Log: numbered dots on a connecting path line ----
+           Each row draws its OWN short connector segment down into the
+           next row's dot, instead of one long overlay line spanning the
+           whole list. A single overlay sized with top/bottom against
+           .ed-log's capped max-height only ever spans that fixed
+           viewport height, not the full scrollable content — which is
+           exactly why the line stopped appearing after ~5 items. Per-row
+           segments scale to any number of hotspots automatically. */
         .ed-log { position: relative; display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; }
-        .ed-log-line {
+        .ed-row:not(:last-child)::after {
+          content: "";
           position: absolute;
-          left: 15px;
-          top: 18px;
-          bottom: 18px;
+          left: 20px; /* aligns with the 32px dot's center (4px padding-left + 16px half-width) */
+          top: 40px;  /* bottom edge of this row's dot (8px padding-top + 32px dot height) */
           width: 1.5px;
+          height: 26px; /* reaches through the row gap into the next row's dot, which sits above it via z-index */
           background: #dcdfdb;
+          z-index: 0;
+          transform: translateX(-0.75px);
         }
         .ed-row {
           position: relative;
@@ -328,10 +338,15 @@ export default function HotspotEditorPanel({
                 <div className="ed-empty">No points yet. Tap anywhere on the model to add one.</div>
               ) : (
                 <div className="ed-log">
-                  <div className="ed-log-line" />
                   {hotspots.map((h, i) => (
                     <button
-                      key={h.id}
+                      // id+index, not just id: if two hotspots ever share
+                      // an id (see the Date.now() collision note above),
+                      // a bare key={h.id} causes React to reuse/misplace
+                      // DOM nodes between them — this only fixes the
+                      // rendering symptom, the underlying onSelect/onDelete
+                      // calls still operate on the (possibly colliding) id.
+                      key={`${h.id}::${i}`}
                       type="button"
                       className={`ed-row${h.id === selectedId ? " is-selected" : ""}`}
                       onClick={() => onSelect(h.id)}
@@ -368,7 +383,20 @@ export default function HotspotEditorPanel({
                   <button type="button" className="ed-btn ed-btn-primary" onClick={() => onCapture(selectedHotspot.id)}>
                     <LensIcon size={13} /> Capture camera
                   </button>
-                  <button type="button" className="ed-btn ed-btn-danger" onClick={() => onDelete(selectedHotspot.id)} aria-label="Delete point">
+                  <button
+                    type="button"
+                    className="ed-btn ed-btn-danger"
+                    onClick={(e) => {
+                      // Defensive only — stops the click from bubbling in
+                      // case something underneath this panel (e.g. the 3D
+                      // canvas) is also listening. This is NOT a confirmed
+                      // fix; I can't see your parent's onDelete wiring or
+                      // your DOM structure from this file alone.
+                      e.stopPropagation();
+                      onDelete(selectedHotspot.id);
+                    }}
+                    aria-label="Delete point"
+                  >
                     <TrashIcon size={14} />
                   </button>
                 </div>
