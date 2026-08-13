@@ -9,7 +9,7 @@ export type PropertyDetailsByModelInstance = Record<string, Record<string, Prope
 
 export const PROPERTY_DETAILS: PropertyDetailsByModelInstance = {
   "house-main": {
-    Object_2: { name: "Plot A", bhk: "2 BHK", area: 1240, price: "Rs 68 Lakh" },
+    Mesh5_Metal_Silver_0: { name: "Plot A", bhk: "2 BHK", area: 1240, price: "Rs 68 Lakh" },
     Object_3: { name: "Plot B", bhk: "3 BHK", area: 1680, price: "Rs 92 Lakh" },
     Object_4: { name: "Plot C", bhk: "2 BHK", area: 1320, price: "Rs 74 Lakh" },
     Object_5: { name: "Plot D", bhk: "3 BHK", area: 1760, price: "Rs 98 Lakh" },

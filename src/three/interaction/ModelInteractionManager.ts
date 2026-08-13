@@ -124,6 +124,28 @@ export class ModelInteractionManager {
   }
 
   /**
+   * Pick the mesh/object under the cursor and return its identifying info.
+   * Used to log which part of a model the user clicked on.
+   */
+  pickMeshName(
+    event: MouseEvent,
+    camera: THREE.PerspectiveCamera,
+    mapElement: HTMLElement
+  ): { meshName: string; modelInstanceId: string; modelId: string } | null {
+    const picked = this.pickMesh(event, camera, mapElement);
+
+    if (!picked) {
+      return null;
+    }
+
+    return {
+      meshName: picked.name || "(no name)",
+      modelInstanceId: (picked.userData.modelInstanceId as string) ?? "",
+      modelId: (picked.userData.modelId as string) ?? "",
+    };
+  }
+
+  /**
    * Return the actual surface hit for one model.
    *
    * This method intentionally has NO projected-center fallback. Hotspot

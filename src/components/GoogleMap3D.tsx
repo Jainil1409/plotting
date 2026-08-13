@@ -249,6 +249,20 @@ export default function GoogleMap3D() {
         modelManager.addModel(renderer.scene, loaded);
         loadedModels.push(loaded);
 
+        // Log the loaded model's structural details to the console as soon
+        // as it loads on the map.
+        const box = new THREE.Box3().setFromObject(loaded.model);
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+
+        console.log("Bounding Box:", box);
+        console.log("Size:", size);
+        console.log("Center:", center);
+
+        loaded.model.traverse((child) => {
+          console.log(child.name, child.type);
+        });
+
         const modelHotspots = HOTSPOTS[config.hotspotSetId] ?? [];
         for (const hotspotConfig of modelHotspots) {
           const hotspot = hotspotManager.createHotspot(hotspotConfig);
@@ -567,6 +581,20 @@ selectedModelIdsRef.current = defaultSelection;
 
       renderer.requestRedraw();
       return;
+    }
+
+    const pickedInfo = interactionManagerRef.current?.pickMeshName(
+      nativeEvent,
+      camera,
+      mapElement
+    );
+    if (pickedInfo) {
+      console.log(
+        "Clicked on mesh/object:",
+        pickedInfo.meshName,
+        "of model:",
+        pickedInfo.modelInstanceId || pickedInfo.modelId || "unknown"
+      );
     }
 
     const result = interactionManagerRef.current?.handleClick(nativeEvent, camera, mapElement);
