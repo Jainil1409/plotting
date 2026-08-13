@@ -3,6 +3,27 @@
 import { useEffect, useRef } from "react";
 import { HotspotConfig } from "../types/hotspot";
 
+// Material UI Components
+import Box from "@mui/material/Box";
+import Drawer from "@mui/material/Drawer";
+import Typography from "@mui/material/Typography";
+import IconButton from "@mui/material/IconButton";
+import Button from "@mui/material/Button";
+import TextField from "@mui/material/TextField";
+import Paper from "@mui/material/Paper";
+import Divider from "@mui/material/Divider";
+import Chip from "@mui/material/Chip";
+import Stack from "@mui/material/Stack";
+import List from "@mui/material/List";
+import ListItemButton from "@mui/material/ListItemButton";
+import Tooltip from "@mui/material/Tooltip";
+
+// Material UI Icons
+import CloseIcon from "@mui/icons-material/Close";
+import DeleteIcon from "@mui/icons-material/Delete";
+import FileDownloadIcon from "@mui/icons-material/FileDownload";
+import LocationOnIcon from "@mui/icons-material/LocationOn";
+
 interface Props {
   hotspots: HotspotConfig[];
   selectedId: string | null;
@@ -12,31 +33,6 @@ interface Props {
   onExport: () => void;
   onClose: () => void;
 }
-
-type IconProps = { size?: number };
-
-const TrashIcon = ({ size = 14 }: IconProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M3.5 6.5h17" />
-    <path d="M18 6.5v13a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 19.5v-13" />
-    <path d="M9 6.5V4.5A1.5 1.5 0 0 1 10.5 3h3A1.5 1.5 0 0 1 15 4.5v2" />
-  </svg>
-);
-
-const DismissIcon = ({ size = 14 }: IconProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" aria-hidden="true">
-    <line x1="16.5" y1="7.5" x2="7.5" y2="16.5" />
-    <line x1="7.5" y1="7.5" x2="16.5" y2="16.5" />
-  </svg>
-);
-
-const ExportIcon = ({ size = 14 }: IconProps) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M12 3v12" />
-    <path d="M7.5 10.5 12 15l4.5-4.5" />
-    <path d="M4.5 17.5v2A1.5 1.5 0 0 0 6 21h12a1.5 1.5 0 0 0 1.5-1.5v-2" />
-  </svg>
-);
 
 const formatVec = (v: number) => (Math.abs(v) < 0.001 ? "0.00" : v.toFixed(2));
 
@@ -53,9 +49,7 @@ export default function HotspotEditorPanel({
   const total = hotspots.length;
   const selectedCardRef = useRef<HTMLDivElement>(null);
 
-  // When a hotspot is selected/tapped (in the list or on the model), the
-  // detail card below needs to be visible — auto-scroll the body so the
-  // card is never hidden below the fold.
+  // Auto-scroll the detail card into view when a hotspot is selected
   useEffect(() => {
     selectedCardRef.current?.scrollIntoView({
       behavior: "smooth",
@@ -64,337 +58,405 @@ export default function HotspotEditorPanel({
   }, [selectedId, selectedHotspot]);
 
   return (
-    <>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Work+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap');
+    <Drawer
+      anchor="right"
+      variant="persistent"
+      open={true}
+     sx={{
+  "& .MuiDrawer-paper": {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    width: 340,
+    maxHeight: "100%",
+    borderRadius: 0,
+    borderLeft: "1px solid #e2e8f0",
+    bgcolor: "#f8fafc",
+    boxShadow: "-16px 0 36px rgba(15, 23, 42, 0.12)",
+    zIndex: 1300,
+    overflow: "hidden",
+    // Clean responsive media query override
+    "@media (max-width: 600px)": {
+      top: "auto",
+      width: "100%",
+      maxHeight: "70vh",
+      borderRadius: "16px 16px 0 0",
+      borderLeft: "none",
+    },
+  },
+}}
+    >
+      <Box
+        sx={{
+          display: "flex",
+          flexDirection: "column",
+          height: "100%",
+          bgcolor: "#f8fafc",
+          fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+        }}
+      >
+        {/* ---- Header ---- */}
+        <Box
+          sx={{
+            p: 2.5,
+            pb: 2,
+            display: "flex",
+            alignItems: "flex-start",
+            justifyContent: "space-between",
+            bgcolor: "#ffffff",
+          }}
+        >
+          <Box>
+            <Typography
+              variant="h6"
+              sx={{
+                fontWeight: 800,
+                fontSize: 18,
+                letterSpacing: "-0.01em",
+                color: "#0f172a",
+                lineHeight: 1.2,
+              }}
+            >
+              Hotspots
+            </Typography>
+            <Typography
+              variant="caption"
+              sx={{
+                fontSize: 12,
+                fontWeight: 500,
+                color: "#64748b",
+                mt: 0.5,
+                display: "block",
+              }}
+            >
+              Tap the model to mark a point
+            </Typography>
+          </Box>
 
-        .ed-panel {
-          position: absolute;
-          top: 0;
-          right: 0;
-          bottom: 0;
-          z-index: 60;
-          width: min(340px, 100%);
-          background: #f6f7f5;
-          border-left: 1px solid #e2e4e1;
-          box-shadow: -16px 0 36px rgba(15,20,18,0.14);
-          font-family: "Work Sans", -apple-system, BlinkMacSystemFont, sans-serif;
-          font-size: 13px;
-          color: #14161a;
-        }
+          <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+            <Chip
+              label={String(total).padStart(2, "0")}
+              size="small"
+              sx={{
+                fontFamily: "'JetBrains Mono', monospace",
+                fontWeight: 700,
+                fontSize: 11,
+                bgcolor: "#e0f2fe",
+                color: "#0369a1",
+                height: 24,
+                borderRadius: 1.5,
+              }}
+            />
+            <Tooltip title="Close editor">
+              <IconButton
+                size="small"
+                onClick={onClose}
+                aria-label="Close hotspot editor"
+                sx={{
+                  color: "#64748b",
+                  bgcolor: "#f1f5f9",
+                  "&:hover": { bgcolor: "#e2e8f0", color: "#0f172a" },
+                }}
+              >
+                <CloseIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Stack>
+        </Box>
 
-        @media (prefers-reduced-motion: no-preference) {
-          .ed-panel { animation: ed-slide-in 0.22s cubic-bezier(0.2, 0.7, 0.3, 1); }
-        }
-        @keyframes ed-slide-in {
-          from { opacity: 0; transform: translateX(14px); }
-          to   { opacity: 1; transform: translateX(0); }
-        }
+        <Divider sx={{ borderColor: "#e2e8f0" }} />
 
-        @media (max-width: 640px) {
-          .ed-panel {
-            top: auto; left: 0; right: 0; bottom: 0;
-            width: 100%; max-height: 70vh;
-            border-left: none;
-            border-top: 1px solid #e2e4e1;
-            border-radius: 16px 16px 0 0;
-          }
-        }
+        {/* ---- Body (Scrollable Area) ---- */}
+        <Box
+          sx={{
+            flex: 1,
+            overflowY: "auto",
+            p: 2.5,
+            display: "flex",
+            flexDirection: "column",
+            gap: 2.5,
+            "&::-webkit-scrollbar": { width: 6 },
+            "&::-webkit-scrollbar-track": { bgcolor: "#f8fafc" },
+            "&::-webkit-scrollbar-thumb": { bgcolor: "#cbd5e1", borderRadius: 3 },
+          }}
+        >
+          {/* Points List Section */}
+          <Stack spacing={1.25}>
+            <Typography
+              variant="overline"
+              sx={{
+                fontFamily: "'JetBrains Mono', monospace",
+                fontSize: 11,
+                fontWeight: 700,
+                letterSpacing: "0.08em",
+                color: "#475569",
+              }}
+            >
+              Points
+            </Typography>
 
-        .ed-inner, .ed-inner * { box-sizing: border-box; }
-        .ed-inner { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+            {total === 0 ? (
+              <Paper
+                variant="outlined"
+                sx={{
+                  p: 2,
+                  borderRadius: 2.5,
+                  borderColor: "#cbd5e1",
+                  borderStyle: "dashed",
+                  bgcolor: "#ffffff",
+                  textAlign: "center",
+                }}
+              >
+                <Typography variant="body2" sx={{ fontSize: 12.5, color: "#64748b", lineHeight: 1.5 }}>
+                  No points yet. Tap anywhere on the model to add one.
+                </Typography>
+              </Paper>
+            ) : (
+              <Paper
+                variant="outlined"
+                sx={{
+                  borderRadius: 2.5,
+                  borderColor: "#e2e8f0",
+                  bgcolor: "#ffffff",
+                  maxHeight: 220,
+                  overflowY: "auto",
+                }}
+              >
+                <List disablePadding>
+                  {hotspots.map((h, i) => {
+                    const isSelected = h.id === selectedId;
+                    return (
+                      <ListItemButton
+                        key={`${h.id}::${i}`}
+                        selected={isSelected}
+                        onClick={() => onSelect(h.id)}
+                        sx={{
+                          py: 1.25,
+                          px: 2,
+                          gap: 1.5,
+                          borderBottom: i < hotspots.length - 1 ? "1px solid #f1f5f9" : "none",
+                          bgcolor: isSelected ? "#f0f9ff !important" : "transparent",
+                          "&:hover": { bgcolor: isSelected ? "#e0f2fe" : "#f8fafc" },
+                        }}
+                      >
+                        <Box
+                          sx={{
+                            width: 28,
+                            height: 28,
+                            borderRadius: "50%",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            bgcolor: isSelected ? "#0284c7" : "#f1f5f9",
+                            color: isSelected ? "#ffffff" : "#64748b",
+                            fontFamily: "'JetBrains Mono', monospace",
+                            fontSize: 11,
+                            fontWeight: 700,
+                            flexShrink: 0,
+                          }}
+                        >
+                          {i + 1}
+                        </Box>
 
-        /* Only the body scrolls — the header and the export button stay
-           pinned. That way the detail card below the Points list is never
-           pushed out of view by the panel overflowing. */
-        .ed-body { flex: 1; overflow-y: auto; min-height: 0; }
+                        <Typography
+                          variant="body2"
+                          sx={{
+                            fontWeight: isSelected ? 700 : 500,
+                            color: isSelected ? "#0369a1" : "#1e293b",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                            flex: 1,
+                            fontSize: 13,
+                          }}
+                        >
+                          {h.label || "Unnamed point"}
+                        </Typography>
+                      </ListItemButton>
+                    );
+                  })}
+                </List>
+              </Paper>
+            )}
+          </Stack>
 
-        /* ---- Header ---- */
-        .ed-header {
-          position: relative;
-          display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
-          gap: 10px;
-          padding: 18px 18px 14px;
-        }
-        .ed-title {
-          font-family: "Sora", sans-serif;
-          font-weight: 700;
-          font-size: 16px;
-          letter-spacing: -0.01em;
-          color: #14161a;
-        }
-        .ed-subtitle { font-size: 12px; color: #6b7280; margin-top: 3px; }
-        .ed-header-right { display: flex; align-items: center; gap: 8px; }
-        .ed-count {
-          font-family: "JetBrains Mono", monospace;
-          font-size: 11px;
-          font-weight: 500;
-          color: #0f7a72;
-          background: rgba(15,122,114,0.1);
-          padding: 3px 8px;
-          border-radius: 6px;
-          white-space: nowrap;
-        }
-        .ed-close {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          width: 26px;
-          height: 26px;
-          border-radius: 7px;
-          border: none;
-          background: transparent;
-          color: #6b7280;
-          cursor: pointer;
-          transition: background 0.12s ease, color 0.12s ease;
-        }
-        .ed-close:hover { background: #e9ebe8; color: #14161a; }
-        .ed-close:focus-visible { outline: 2px solid #0f7a72; outline-offset: 2px; }
+          {/* ---- Selected Hotspot Detail Card ---- */}
+          {selectedHotspot ? (
+            <Paper
+              ref={selectedCardRef}
+              elevation={0}
+              variant="outlined"
+              sx={{
+                p: 2.25,
+                borderRadius: 2.5,
+                borderColor: "#e2e8f0",
+                bgcolor: "#ffffff",
+                display: "flex",
+                flexDirection: "column",
+                gap: 2,
+              }}
+            >
+              {/* Name Input */}
+              <Stack spacing={0.75}>
+                <Typography
+                  variant="caption"
+                  sx={{
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    letterSpacing: "0.06em",
+                    color: "#64748b",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  Name
+                </Typography>
+                <TextField
+                  fullWidth
+                  size="small"
+                  value={selectedHotspot.label}
+                  onChange={(e) => onRename(selectedHotspot.id, e.target.value)}
+                  placeholder="Unnamed point"
+                  sx={{
+                    "& .MuiOutlinedInput-root": {
+                      borderRadius: 2,
+                      bgcolor: "#f8fafc",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      "& fieldset": { borderColor: "#cbd5e1" },
+                      "&:hover fieldset": { borderColor: "#94a3b8" },
+                      "&.Mui-focused fieldset": { borderColor: "#0284c7" },
+                    },
+                  }}
+                />
+              </Stack>
 
-        .ed-divider { height: 1px; background: #e2e4e1; margin: 0 18px; }
-
-        /* ---- Body ---- */
-        .ed-body { flex: 1; display: flex; flex-direction: column; gap: 18px; padding: 16px 18px; }
-
-        .ed-eyebrow {
-          font-family: "JetBrains Mono", monospace;
-          font-size: 10px;
-          font-weight: 500;
-          letter-spacing: 0.08em;
-          text-transform: uppercase;
-          color: #6b7280;
-          margin-bottom: 10px;
-        }
-
-        .ed-log { position: relative; display: flex; flex-direction: column; gap: 2px; max-height: 220px; overflow-y: auto; }
-        .ed-row:not(:last-child)::after {
-          content: "";
-          position: absolute;
-          left: 20px;
-          top: 40px;
-          width: 1.5px;
-          height: 26px;
-          background: #dcdfdb;
-          z-index: 0;
-          transform: translateX(-0.75px);
-        }
-        .ed-row {
-          position: relative;
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          width: 100%;
-          padding: 8px 10px 8px 4px;
-          border: none;
-          border-radius: 8px;
-          background: transparent;
-          color: #14161a;
-          font-family: inherit;
-          font-size: 13px;
-          text-align: left;
-          cursor: pointer;
-          transition: background 0.12s ease;
-        }
-        .ed-row:hover { background: #eceeeb; }
-        .ed-row:focus-visible { outline: 2px solid #0f7a72; outline-offset: -2px; }
-        .ed-row.is-selected { background: #ffffff; box-shadow: 0 1px 2px rgba(15,20,18,0.08), 0 0 0 1px #e2e4e1; }
-
-        .ed-dot {
-          position: relative;
-          z-index: 1;
-          flex-shrink: 0;
-          width: 32px;
-          height: 32px;
-          border-radius: 50%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          background: #ffffff;
-          border: 1.5px solid #dcdfdb;
-          font-family: "JetBrains Mono", monospace;
-          font-size: 11px;
-          font-weight: 600;
-          color: #6b7280;
-        }
-        .ed-row.is-selected .ed-dot { border-color: #0f7a72; color: #0f7a72; background: rgba(15,122,114,0.08); }
-
-        .ed-row-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
-        .ed-row.is-selected .ed-row-label { color: #0f7a72; }
-
-        .ed-empty {
-          padding: 14px 12px;
-          border: 1px dashed #dcdfdb;
-          border-radius: 10px;
-          color: #6b7280;
-          font-size: 12.5px;
-          line-height: 1.55;
-        }
-
-        /* ---- Detail card ---- */
-        .ed-card { background: #ffffff; border: 1px solid #e2e4e1; border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 12px; }
-
-        .ed-field { display: flex; flex-direction: column; gap: 5px; }
-        .ed-field-label { font-family: "JetBrains Mono", monospace; font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: #6b7280; }
-        .ed-input {
-          width: 100%;
-          padding: 8px 10px;
-          border: 1px solid #e2e4e1;
-          border-radius: 8px;
-          background: #f6f7f5;
-          color: #14161a;
-          font-family: "Sora", sans-serif;
-          font-size: 13.5px;
-          font-weight: 500;
-          outline: none;
-          transition: border-color 0.12s ease, background 0.12s ease;
-        }
-        .ed-input:focus { border-color: #0f7a72; background: #ffffff; }
-        .ed-input::placeholder { color: #9aa0a6; font-weight: 400; }
-
-        .ed-coords { display: flex; gap: 6px; flex-wrap: wrap; }
-        .ed-coord {
-          display: inline-flex;
-          align-items: baseline;
-          gap: 4px;
-          padding: 4px 8px;
-          border-radius: 6px;
-          background: #f6f7f5;
-          font-family: "JetBrains Mono", monospace;
-          font-size: 11.5px;
-          color: #14161a;
-        }
-        .ed-coord-axis { color: #9aa0a6; font-weight: 500; }
-
-        .ed-actions { display: flex; justify-content: flex-end; }
-        .ed-btn {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          gap: 6px;
-          padding: 9px 12px;
-          border-radius: 8px;
-          border: none;
-          font-family: "Work Sans", sans-serif;
-          font-size: 12.5px;
-          font-weight: 600;
-          cursor: pointer;
-          transition: background 0.12s ease, color 0.12s ease, box-shadow 0.12s ease;
-        }
-        .ed-btn:focus-visible { outline: 2px solid #0f7a72; outline-offset: 2px; }
-
-        .ed-btn-danger { background: transparent; color: #b3261e; padding: 9px 10px; }
-        .ed-btn-danger:hover { background: rgba(179,38,30,0.08); }
-
-        /* ---- Export ---- */
-        .ed-export-wrap { margin-top: auto; padding: 14px 18px 18px; }
-        .ed-btn-export {
-          width: 100%;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-          padding: 11px 14px;
-          border-radius: 10px;
-          border: 1px solid #e2e4e1;
-          background: #ffffff;
-          color: #14161a;
-          font-family: "Work Sans", sans-serif;
-          font-size: 13px;
-          font-weight: 600;
-          cursor: pointer;
-          transition: border-color 0.12s ease, box-shadow 0.12s ease;
-        }
-        .ed-btn-export:hover { border-color: #0f7a72; box-shadow: 0 1px 2px rgba(15,20,18,0.06); }
-        .ed-btn-export:focus-visible { outline: 2px solid #0f7a72; outline-offset: 2px; }
-      `}</style>
-
-      <div className="ed-panel">
-        <div className="ed-inner">
-          <div className="ed-header">
-            <div>
-              <div className="ed-title">Hotspots</div>
-              <div className="ed-subtitle">Tap the model to mark a point</div>
-            </div>
-            <div className="ed-header-right">
-              <span className="ed-count">{String(total).padStart(2, "0")}</span>
-              <button type="button" className="ed-close" onClick={onClose} title="Close editor" aria-label="Close hotspot editor">
-                <DismissIcon size={14} />
-              </button>
-            </div>
-          </div>
-
-          <div className="ed-divider" />
-
-          <div className="ed-body">
-            <div>
-              <div className="ed-eyebrow">Points</div>
-              {total === 0 ? (
-                <div className="ed-empty">No points yet. Tap anywhere on the model to add one.</div>
-              ) : (
-                <div className="ed-log">
-                  {hotspots.map((h, i) => (
-                    <button
-                      key={`${h.id}::${i}`}
-                      type="button"
-                      className={`ed-row${h.id === selectedId ? " is-selected" : ""}`}
-                      onClick={() => onSelect(h.id)}
-                      title={h.label || "Unnamed point"}
+              {/* Coordinates */}
+              <Stack spacing={0.75}>
+                <Typography
+                  variant="caption"
+                  sx={{
+                    fontFamily: "'JetBrains Mono', monospace",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    letterSpacing: "0.06em",
+                    color: "#64748b",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  Coordinates
+                </Typography>
+                <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap" }}>
+                  {[
+                    { axis: "X", val: selectedHotspot.position.x },
+                    { axis: "Y", val: selectedHotspot.position.y },
+                    { axis: "Z", val: selectedHotspot.position.z },
+                  ].map((item) => (
+                    <Paper
+                      key={item.axis}
+                      variant="outlined"
+                      sx={{
+                        px: 1.25,
+                        py: 0.6,
+                        borderRadius: 1.5,
+                        bgcolor: "#f8fafc",
+                        borderColor: "#e2e8f0",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 0.75,
+                        fontFamily: "'JetBrains Mono', monospace",
+                        fontSize: 11.5,
+                      }}
                     >
-                      <span className="ed-dot">{i + 1}</span>
-                      <span className="ed-row-label">{h.label || "Unnamed point"}</span>
-                    </button>
+                      <Typography variant="caption" sx={{ color: "#94a3b8", fontWeight: 700 }}>
+                        {item.axis}
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: "#0f172a", fontWeight: 600 }}>
+                        {formatVec(item.val)}
+                      </Typography>
+                    </Paper>
                   ))}
-                </div>
-              )}
-            </div>
+                </Stack>
+              </Stack>
 
-            {selectedHotspot ? (
-              <div className="ed-card" ref={selectedCardRef}>
-                <label className="ed-field">
-                  <span className="ed-field-label">Name</span>
-                  <input
-                    className="ed-input"
-                    value={selectedHotspot.label}
-                    onChange={(e) => onRename(selectedHotspot.id, e.target.value)}
-                    placeholder="Unnamed point"
-                    spellCheck={false}
-                  />
-                </label>
+              {/* Action Buttons */}
+              <Box sx={{ display: "flex", justifyContent: "flex-end", pt: 0.5 }}>
+                <Button
+                  size="small"
+                  color="error"
+                  variant="text"
+                  startIcon={<DeleteIcon fontSize="small" />}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDelete(selectedHotspot.id);
+                  }}
+                  sx={{
+                    borderRadius: 2,
+                    textTransform: "none",
+                    fontWeight: 700,
+                    fontSize: 12,
+                    py: 0.8,
+                    px: 1.5,
+                    color: "#ef4444",
+                    "&:hover": { bgcolor: "#fef2f2" },
+                  }}
+                >
+                  Delete Point
+                </Button>
+              </Box>
+            </Paper>
+          ) : total > 0 ? (
+            <Paper
+              variant="outlined"
+              sx={{
+                p: 2,
+                borderRadius: 2.5,
+                borderColor: "#e2e8f0",
+                bgcolor: "#ffffff",
+                textAlign: "center",
+              }}
+            >
+              <Typography variant="body2" sx={{ fontSize: 12, color: "#64748b" }}>
+                Select a point from the list above to rename or remove it.
+              </Typography>
+            </Paper>
+          ) : null}
+        </Box>
 
-                <div className="ed-coords">
-                  <span className="ed-coord"><span className="ed-coord-axis">X</span>{formatVec(selectedHotspot.position.x)}</span>
-                  <span className="ed-coord"><span className="ed-coord-axis">Y</span>{formatVec(selectedHotspot.position.y)}</span>
-                  <span className="ed-coord"><span className="ed-coord-axis">Z</span>{formatVec(selectedHotspot.position.z)}</span>
-                </div>
-
-                <div className="ed-actions">
-                  <button
-                    type="button"
-                    className="ed-btn ed-btn-danger"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onDelete(selectedHotspot.id);
-                    }}
-                    aria-label="Delete point"
-                  >
-                    <TrashIcon size={14} />
-                  </button>
-                </div>
-              </div>
-            ) : total > 0 ? (
-              <div className="ed-empty">Select a point from the list to rename or remove it.</div>
-            ) : null}
-          </div>
-
-          <div className="ed-export-wrap">
-            <button type="button" className="ed-btn-export" onClick={onExport}>
-              <ExportIcon size={14} /> Export JSON
-            </button>
-          </div>
-        </div>
-      </div>
-    </>
+        {/* ---- Footer (Export Action) ---- */}
+        <Box
+          sx={{
+            p: 2.5,
+            pt: 2,
+            borderTop: "1px solid #f1f5f9",
+            bgcolor: "#ffffff",
+          }}
+        >
+          <Button
+            fullWidth
+            variant="outlined"
+            onClick={onExport}
+            startIcon={<FileDownloadIcon />}
+            sx={{
+              py: 1.25,
+              borderRadius: 2.5,
+              textTransform: "none",
+              fontSize: 13,
+              fontWeight: 700,
+              color: "#0f172a",
+              borderColor: "#cbd5e1",
+              "&:hover": {
+                borderColor: "#0284c7",
+                bgcolor: "#f0f9ff",
+                color: "#0284c7",
+              },
+            }}
+          >
+            Export JSON
+          </Button>
+        </Box>
+      </Box>
+    </Drawer>
   );
 }

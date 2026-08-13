@@ -51,8 +51,8 @@ import Paper from "@mui/material/Paper";
 import MenuIcon from "@mui/icons-material/Menu";
 import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
 import CloseIcon from "@mui/icons-material/Close";
-import OpenWithIcon from "@mui/icons-material/OpenWith"; // New Move Object Icon
-import AddLocationIcon from "@mui/icons-material/AddLocation"; // New Hotspot Icon
+import OpenWithIcon from "@mui/icons-material/OpenWith";
+import AddLocationIcon from "@mui/icons-material/AddLocation";
 import ExploreIcon from "@mui/icons-material/Explore";
 import LinkIcon from "@mui/icons-material/Link";
 import EditIcon from "@mui/icons-material/Edit";
@@ -147,8 +147,8 @@ export default function GoogleMap3D() {
   const [, setModelHeadingDeg] = useState(MODEL_HEADING);
   const [compassOpen, setCompassOpen] = useState(false);
 
-  // Sidebar extension state: false = mini rail only, true = extended detail panel
-  const [deckOpen, setDeckOpen] = useState(true);
+  // Expanded sidebar is CLOSED on initial website run
+  const [deckOpen, setDeckOpen] = useState(false);
 
   const [loadedModelSummaries, setLoadedModelSummaries] = useState<ModelSummary[]>([]);
   const [selectedModelIds, setSelectedModelIds] = useState<Set<string>>(new Set());
@@ -309,7 +309,22 @@ export default function GoogleMap3D() {
     });
   };
 
-  const enterPlacementMode = () => {
+  const exitPlacementMode = () => {
+    if (placementListenerRef.current) {
+      window.google?.maps?.event?.removeListener(placementListenerRef.current);
+      placementListenerRef.current = null;
+    }
+    placementModeRef.current = false;
+    setPlacementMode(false);
+  };
+
+  const togglePlacementMode = () => {
+    // If already in placement mode, clicking again exits placement mode
+    if (placementMode) {
+      exitPlacementMode();
+      return;
+    }
+
     const map = mapRef.current;
     if (!map) return;
 
@@ -664,738 +679,723 @@ export default function GoogleMap3D() {
         userSelect: "none",
       }}
     >
-      {/* ── GOOGLE MAPS STYLE MINI RAIL SIDEBAR (ALWAYS ANCHORED LEFT) ── */}
-      <Paper
-        elevation={4}
-        sx={{
-          position: "absolute",
-          top: 16,
-          left: 16,
-          zIndex: 1300,
-          width: 58,
-          height: "calc(100% - 32px)",
-          borderRadius: 3,
-          bgcolor: "#ffffff",
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          py: 2.5,
-          boxShadow: "0 8px 32px rgba(15, 23, 42, 0.12)",
-          border: "1px solid #e2e8f0",
-        }}
-      >
-        {/* Toggle Menu Button */}
-        <Tooltip title={deckOpen ? "Collapse Sidebar" : "Expand Sidebar"} placement="right">
-          <IconButton
-            onClick={() => setDeckOpen((prev) => !prev)}
+      {/* Sidebars only show when viewer overlay is NOT open */}
+      {!viewerModel && (
+        <>
+          {/* ── GOOGLE MAPS STYLE MINI RAIL SIDEBAR ── */}
+          <Paper
+            elevation={4}
             sx={{
-              width: 42,
-              height: 42,
-              bgcolor: deckOpen ? "#0284c7" : "#f1f5f9",
-              color: deckOpen ? "#ffffff" : "#0f172a",
-              "&:hover": {
-                bgcolor: deckOpen ? "#0369a1" : "#e2e8f0",
-              },
-              transition: "all 0.2s ease",
-            }}
-          >
-            {deckOpen ? <ChevronLeftIcon /> : <MenuIcon />}
-          </IconButton>
-        </Tooltip>
-
-        <Divider sx={{ width: 32, borderColor: "#e2e8f0", my: 2.5 }} />
-
-        {/* Quick Action Icons with Increased Spacing & Updated Icons */}
-        <Stack spacing={3.5} sx={{ alignItems: "center" }}>
-          <Tooltip title="Target Models" placement="right">
-            <IconButton
-              onClick={() => setDeckOpen(true)}
-              sx={{
-                width: 42,
-                height: 42,
-                color: selectedModelIds.size > 0 ? "#0284c7" : "#64748b",
-                bgcolor: selectedModelIds.size > 0 ? "#e0f2fe" : "transparent",
-                "&:hover": { bgcolor: "#f1f5f9" },
-              }}
-            >
-              <LayersIcon sx={{ fontSize: 22 }} />
-            </IconButton>
-          </Tooltip>
-
-          {/* Updated Moving Object Icon (OpenWithIcon) */}
-          <Tooltip title="Move Object" placement="right">
-            <IconButton
-              disabled={controlsDisabled}
-              onClick={() => {
-                setDeckOpen(true);
-                enterPlacementMode();
-              }}
-              sx={{
-                width: 42,
-                height: 42,
-                color: placementMode ? "#d97706" : "#64748b",
-                bgcolor: placementMode ? "#fef3c7" : "transparent",
-                "&:hover": { bgcolor: "#f1f5f9" },
-              }}
-            >
-              <OpenWithIcon sx={{ fontSize: 22 }} />
-            </IconButton>
-          </Tooltip>
-
-          <Tooltip title="Orientation Controls" placement="right">
-            <IconButton
-              disabled={controlsDisabled}
-              onClick={() => {
-                setDeckOpen(true);
-                setCompassOpen((v) => !v);
-              }}
-              sx={{
-                width: 42,
-                height: 42,
-                color: compassOpen ? "#0284c7" : "#64748b",
-                bgcolor: compassOpen ? "#e0f2fe" : "transparent",
-                "&:hover": { bgcolor: "#f1f5f9" },
-              }}
-            >
-              <TuneIcon sx={{ fontSize: 22 }} />
-            </IconButton>
-          </Tooltip>
-
-          {/* Updated Add Hotspot Icon (AddLocationIcon) */}
-          <Tooltip title="Hotspots Operations" placement="right">
-            <IconButton
-              disabled={controlsDisabled}
-              onClick={() => {
-                setDeckOpen(true);
-                if (!hotspotPlacementMode) enterHotspotPlacementMode();
-              }}
-              sx={{
-                width: 42,
-                height: 42,
-                color: hotspotPlacementMode ? "#0284c7" : "#64748b",
-                bgcolor: hotspotPlacementMode ? "#e0f2fe" : "transparent",
-                "&:hover": { bgcolor: "#f1f5f9" },
-              }}
-            >
-              <AddLocationIcon sx={{ fontSize: 22 }} />
-            </IconButton>
-          </Tooltip>
-        </Stack>
-
-        <Box sx={{ flexGrow: 1 }} />
-
-        {/* Active Target Count Badge */}
-        <Tooltip title={`${selectedModelIds.size} Models Selected`} placement="right">
-          <Chip
-            label={selectedModelIds.size}
-            size="small"
-            sx={{
-              fontWeight: 700,
-              fontSize: 11,
-              bgcolor: "#0284c7",
-              color: "#ffffff",
-              height: 26,
-              minWidth: 26,
-            }}
-          />
-        </Tooltip>
-      </Paper>
-
-      {/* ── EXPANDED DETAIL SIDEBAR DRAWER ── */}
-      <Drawer
-        anchor="left"
-        variant="persistent"
-        open={deckOpen}
-        sx={{
-          "& .MuiDrawer-paper": {
-            position: "absolute",
-            top: 16,
-            left: 86,
-            width: 380,
-            height: "calc(100% - 32px)",
-            borderRadius: 3,
-            boxSizing: "border-box",
-            border: "1px solid #e2e8f0",
-            bgcolor: "#ffffff",
-            color: "#0f172a",
-            boxShadow: "0 12px 36px rgba(15, 23, 42, 0.14)",
-            overflow: "hidden",
-            zIndex: 1250,
-          },
-        }}
-      >
-        <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "#ffffff" }}>
-          {/* Header */}
-          <Box
-            sx={{
-              p: 3,
-              pb: 2.5,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              borderBottom: "1px solid #f1f5f9",
-            }}
-          >
-            <Box>
-              <Typography
-                variant="subtitle1"
-                sx={{
-                  fontWeight: 800,
-                  fontSize: 18,
-                  letterSpacing: "-0.01em",
-                  color: "#0f172a",
-                  lineHeight: 1.2,
-                }}
-              >
-                Tactical Viewport
-              </Typography>
-              <Typography
-                variant="caption"
-                sx={{
-                  fontSize: 12,
-                  fontWeight: 500,
-                  color: "#64748b",
-                  mt: 0.6,
-                  display: "block",
-                }}
-              >
-                Model Control & Hotspot Operations
-              </Typography>
-            </Box>
-
-            <Tooltip title="Collapse Side Panel">
-              <IconButton
-                size="small"
-                onClick={() => setDeckOpen(false)}
-                sx={{
-                  color: "#64748b",
-                  bgcolor: "#f8fafc",
-                  border: "1px solid #e2e8f0",
-                  "&:hover": { bgcolor: "#f1f5f9", color: "#0f172a" },
-                }}
-              >
-                <ChevronLeftIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          </Box>
-
-          {/* Scrollable Content with Roomy Spacing */}
-          <Box
-            sx={{
-              flex: 1,
-              overflowY: "auto",
-              p: 3,
+              position: "absolute",
+              top: 16,
+              left: 16,
+              zIndex: 1300,
+              width: 58,
+              height: "calc(100% - 32px)",
+              borderRadius: 3,
+              bgcolor: "#ffffff",
               display: "flex",
               flexDirection: "column",
-              gap: 3.5,
-              "&::-webkit-scrollbar": { width: 6 },
-              "&::-webkit-scrollbar-track": { bgcolor: "#f8fafc" },
-              "&::-webkit-scrollbar-thumb": { bgcolor: "#cbd5e1", borderRadius: 3 },
+              alignItems: "center",
+              py: 2.5,
+              boxShadow: "0 8px 32px rgba(15, 23, 42, 0.12)",
+              border: "1px solid #e2e8f0",
             }}
           >
-            {/* SECTION 1: Active Targets */}
-            <Stack spacing={1.5}>
-              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <Typography
-                  variant="overline"
-                  sx={{
-                    fontSize: 11,
-                    fontWeight: 700,
-                    letterSpacing: "0.08em",
-                    color: "#475569",
-                    textTransform: "uppercase",
-                  }}
-                >
-                  01 / Active Targets
-                </Typography>
-                <Chip
-                  size="small"
-                  label={`${selectedModelIds.size} ACTIVE`}
-                  sx={{
-                    height: 22,
-                    fontSize: 10,
-                    fontWeight: 800,
-                    bgcolor: selectedModelIds.size ? "#e0f2fe" : "#f1f5f9",
-                    color: selectedModelIds.size ? "#0369a1" : "#64748b",
-                  }}
-                />
-              </Box>
-
-              <Paper
-                variant="outlined"
+            {/* Toggle Menu Button */}
+            <Tooltip title={deckOpen ? "Collapse Sidebar" : "Expand Sidebar"} placement="right">
+              <IconButton
+                onClick={() => setDeckOpen((prev) => !prev)}
                 sx={{
-                  borderRadius: 2.5,
-                  borderColor: "#e2e8f0",
-                  overflow: "hidden",
-                }}
-              >
-                <List disablePadding>
-                  {loadedModelSummaries.map((m, index) => {
-                    const isChecked = selectedModelIds.has(m.instanceId);
-                    return (
-                      <ListItemButton
-                        key={m.instanceId}
-                        onClick={() => toggleModelCheckbox(m.instanceId)}
-                        sx={{
-                          py: 1.5,
-                          px: 2,
-                          borderBottom: index < loadedModelSummaries.length - 1 ? "1px solid #f1f5f9" : "none",
-                          bgcolor: isChecked ? "#f0f9ff" : "transparent",
-                          "&:hover": { bgcolor: isChecked ? "#e0f2fe" : "#f8fafc" },
-                        }}
-                      >
-                        <Checkbox
-                          checked={isChecked}
-                          tabIndex={-1}
-                          disableRipple
-                          size="small"
-                          sx={{
-                            p: 0,
-                            mr: 1.75,
-                            color: "#cbd5e1",
-                            "&.Mui-checked": { color: "#0284c7" },
-                          }}
-                        />
-
-                        <ListItemText
-                          primary={m.label}
-                          secondary={`Heading: ${Math.round(m.heading)}°`}
-                          slotProps={{
-                            primary: {
-                              sx: {
-                                fontSize: 13,
-                                fontWeight: 700,
-                                color: isChecked ? "#0369a1" : "#1e293b",
-                              },
-                            },
-                            secondary: {
-                              sx: {
-                                fontSize: 11,
-                                fontWeight: 500,
-                                color: "#64748b",
-                                mt: 0.25,
-                              },
-                            },
-                          }}
-                        />
-
-                        {isChecked && (
-                          <Chip
-                            label="ACTIVE"
-                            size="small"
-                            sx={{
-                              height: 20,
-                              fontSize: 9,
-                              fontWeight: 800,
-                              color: "#0284c7",
-                              bgcolor: "#e0f2fe",
-                            }}
-                          />
-                        )}
-                      </ListItemButton>
-                    );
-                  })}
-                </List>
-              </Paper>
-            </Stack>
-
-            <Divider sx={{ borderColor: "#f1f5f9" }} />
-
-            {/* SECTION 2: Model Controls */}
-            <Stack spacing={1.75}>
-              <Box>
-                <Typography
-                  variant="overline"
-                  sx={{
-                    fontSize: 11,
-                    fontWeight: 700,
-                    letterSpacing: "0.08em",
-                    color: "#475569",
-                    textTransform: "uppercase",
-                  }}
-                >
-                  02 / Model Controls
-                </Typography>
-                <Typography variant="body2" sx={{ fontSize: 12, color: "#64748b", mt: 0.3 }}>
-                  Position and orient active models on map
-                </Typography>
-              </Box>
-
-              <Stack direction="row" spacing={1.5}>
-                <Button
-                  fullWidth
-                  variant={placementMode ? "contained" : "outlined"}
-                  disabled={controlsDisabled && !placementMode}
-                  onClick={placementMode || controlsDisabled ? undefined : enterPlacementMode}
-                  startIcon={<OpenWithIcon />}
-                  sx={{
-                    py: 1.4,
-                    borderRadius: 2.5,
-                    textTransform: "none",
-                    fontSize: 12,
-                    fontWeight: 700,
-                    borderColor: placementMode ? "#d97706" : "#cbd5e1",
-                    bgcolor: placementMode ? "#d97706" : "#ffffff",
-                    color: placementMode ? "#ffffff" : "#334155",
-                    "&:hover": {
-                      borderColor: placementMode ? "#b45309" : "#0284c7",
-                      bgcolor: placementMode ? "#b45309" : "#f0f9ff",
-                    },
-                  }}
-                >
-                  {placementMode ? "Relocating" : "Move Object"}
-                </Button>
-
-                <Button
-                  fullWidth
-                  variant={compassOpen ? "contained" : "outlined"}
-                  disabled={controlsDisabled}
-                  onClick={() => !controlsDisabled && setCompassOpen((v) => !v)}
-                  startIcon={
-                    <ExploreIcon
-                      sx={{
-                        transform: `rotate(${compassDisplayDeg}deg)`,
-                        transition: "transform 0.2s ease",
-                      }}
-                    />
-                  }
-                  sx={{
-                    py: 1.4,
-                    borderRadius: 2.5,
-                    textTransform: "none",
-                    fontSize: 12,
-                    fontWeight: 700,
-                    borderColor: compassOpen ? "#0284c7" : "#cbd5e1",
-                    bgcolor: compassOpen ? "#0284c7" : "#ffffff",
-                    color: compassOpen ? "#ffffff" : "#334155",
-                    "&:hover": {
-                      borderColor: "#0284c7",
-                      bgcolor: compassOpen ? "#0369a1" : "#f0f9ff",
-                    },
-                  }}
-                >
-                  Orientation
-                </Button>
-              </Stack>
-
-              {/* Slider / Preset Buttons */}
-              {compassOpen && !controlsDisabled && (
-                <Paper
-                  variant="outlined"
-                  sx={{
-                    p: 2.25,
-                    borderRadius: 2.5,
-                    borderColor: "#e2e8f0",
-                    bgcolor: "#f8fafc",
-                    mt: 0.5,
-                  }}
-                >
-                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
-                    <Typography variant="caption" sx={{ fontSize: 11, fontWeight: 700, color: "#475569" }}>
-                      HEADING
-                    </Typography>
-                    <Typography variant="subtitle2" sx={{ fontSize: 16, fontWeight: 800, color: "#0284c7" }}>
-                      {Math.round(compassDisplayDeg)}°
-                    </Typography>
-                  </Box>
-
-                  <Slider
-                    value={compassDisplayDeg}
-                    min={0}
-                    max={359}
-                    onChange={(_, value) => setModelHeadingForSelection(value as number)}
-                    sx={{
-                      color: "#0284c7",
-                      py: 1.25,
-                      "& .MuiSlider-thumb": { width: 18, height: 18 },
-                    }}
-                  />
-
-                  <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
-                    {[0, 90, 180, 270].map((deg) => (
-                      <Button
-                        key={deg}
-                        size="small"
-                        fullWidth
-                        onClick={() => setModelHeadingForSelection(deg)}
-                        sx={{
-                          py: 0.6,
-                          borderRadius: 1.5,
-                          color: "#475569",
-                          fontSize: 10,
-                          fontWeight: 700,
-                          bgcolor: "#ffffff",
-                          border: "1px solid #cbd5e1",
-                          "&:hover": { bgcolor: "#e0f2fe", borderColor: "#38bdf8", color: "#0284c7" },
-                        }}
-                      >
-                        {deg === 0 ? "N 0°" : deg === 90 ? "E 90°" : deg === 180 ? "S 180°" : "W 270°"}
-                      </Button>
-                    ))}
-                  </Stack>
-                </Paper>
-              )}
-            </Stack>
-
-            <Divider sx={{ borderColor: "#f1f5f9" }} />
-
-            {/* SECTION 3: Hotspot Editor */}
-            <Stack spacing={1.75}>
-              <Box>
-                <Typography
-                  variant="overline"
-                  sx={{
-                    fontSize: 11,
-                    fontWeight: 700,
-                    letterSpacing: "0.08em",
-                    color: "#475569",
-                    textTransform: "uppercase",
-                  }}
-                >
-                  03 / Hotspot Editor
-                </Typography>
-                <Typography variant="body2" sx={{ fontSize: 12, color: "#64748b", mt: 0.3 }}>
-                  Add interactive hotspots linking to target models
-                </Typography>
-              </Box>
-
-              <Button
-                fullWidth
-                variant={hotspotPlacementMode ? "contained" : "outlined"}
-                disabled={controlsDisabled && !hotspotPlacementMode}
-                onClick={
-                  hotspotPlacementMode
-                    ? exitHotspotPlacementMode
-                    : placementMode || controlsDisabled
-                    ? undefined
-                    : enterHotspotPlacementMode
-                }
-                startIcon={<AddLocationIcon />}
-                sx={{
-                  py: 1.4,
-                  borderRadius: 2.5,
-                  textTransform: "none",
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color: hotspotPlacementMode ? "#ffffff" : "#0284c7",
-                  bgcolor: hotspotPlacementMode ? "#0284c7" : "#ffffff",
-                  borderColor: hotspotPlacementMode ? "#0284c7" : "#38bdf8",
+                  width: 42,
+                  height: 42,
+                  bgcolor: deckOpen ? "#0284c7" : "#f1f5f9",
+                  color: deckOpen ? "#ffffff" : "#0f172a",
                   "&:hover": {
-                    bgcolor: hotspotPlacementMode ? "#0369a1" : "#f0f9ff",
-                    borderColor: "#0284c7",
+                    bgcolor: deckOpen ? "#0369a1" : "#e2e8f0",
                   },
+                  transition: "all 0.2s ease",
                 }}
               >
-                {hotspotPlacementMode ? "Click Model to Place Hotspot" : "Add Hotspot"}
-              </Button>
+                {deckOpen ? <ChevronLeftIcon /> : <MenuIcon />}
+              </IconButton>
+            </Tooltip>
 
-              {hotspotPlacementMode && (
-                <Paper variant="outlined" sx={{ p: 2, borderRadius: 2.5, borderColor: "#e2e8f0", bgcolor: "#f8fafc" }}>
-                  <Typography variant="caption" sx={{ fontSize: 11, fontWeight: 700, color: "#475569", mb: 1, display: "block" }}>
-                    LINKS TO MODEL
-                  </Typography>
+            <Divider sx={{ width: 32, borderColor: "#e2e8f0", my: 2.5 }} />
 
-                  <FormControl fullWidth size="small">
-                    <Select
-                      value={hotspotNextModelId}
-                      onChange={(e) => {
-                        const next = e.target.value;
-                        setHotspotNextModelId(next);
-                        if (lastCreatedHotspotIdRef.current) {
-                          updateCreatedHotspotLink(lastCreatedHotspotIdRef.current, next);
-                        }
-                      }}
-                      sx={{
-                        borderRadius: 1.5,
-                        bgcolor: "#ffffff",
-                        fontSize: 12,
-                        fontWeight: 600,
-                      }}
-                    >
-                      {Object.values(MODELS).map((model) => (
-                        <MenuItem key={model.id} value={model.id}>
-                          {model.label}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                </Paper>
-              )}
+            {/* Quick Action Icons */}
+            <Stack spacing={3.5} sx={{ alignItems: "center" }}>
+              <Tooltip title="Target Models" placement="right">
+                <IconButton
+                  onClick={() => setDeckOpen(true)}
+                  sx={{
+                    width: 42,
+                    height: 42,
+                    color: selectedModelIds.size > 0 ? "#0284c7" : "#64748b",
+                    bgcolor: selectedModelIds.size > 0 ? "#e0f2fe" : "transparent",
+                    "&:hover": { bgcolor: "#f1f5f9" },
+                  }}
+                >
+                  <LayersIcon sx={{ fontSize: 22 }} />
+                </IconButton>
+              </Tooltip>
 
-              {/* Created Hotspots List */}
-              <Stack spacing={1.25} sx={{ mt: 0.5 }}>
-                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <Typography variant="caption" sx={{ fontSize: 11, fontWeight: 700, color: "#475569" }}>
-                    CREATED HOTSPOTS
-                  </Typography>
-                  <Chip
-                    label={createdHotspots.length}
-                    size="small"
+              <Tooltip title="Move Object" placement="right">
+                <IconButton
+                  disabled={controlsDisabled}
+                  onClick={() => {
+                    setDeckOpen(true);
+                    togglePlacementMode();
+                  }}
+                  sx={{
+                    width: 42,
+                    height: 42,
+                    color: placementMode ? "#d97706" : "#64748b",
+                    bgcolor: placementMode ? "#fef3c7" : "transparent",
+                    "&:hover": { bgcolor: "#f1f5f9" },
+                  }}
+                >
+                  <OpenWithIcon sx={{ fontSize: 22 }} />
+                </IconButton>
+              </Tooltip>
+
+              <Tooltip title="Orientation Controls" placement="right">
+                <IconButton
+                  disabled={controlsDisabled}
+                  onClick={() => {
+                    setDeckOpen(true);
+                    setCompassOpen((v) => !v);
+                  }}
+                  sx={{
+                    width: 42,
+                    height: 42,
+                    color: compassOpen ? "#0284c7" : "#64748b",
+                    bgcolor: compassOpen ? "#e0f2fe" : "transparent",
+                    "&:hover": { bgcolor: "#f1f5f9" },
+                  }}
+                >
+                  <TuneIcon sx={{ fontSize: 22 }} />
+                </IconButton>
+              </Tooltip>
+
+              <Tooltip title="Hotspots Operations" placement="right">
+                <IconButton
+                  disabled={controlsDisabled}
+                  onClick={() => {
+                    setDeckOpen(true);
+                    if (!hotspotPlacementMode) enterHotspotPlacementMode();
+                  }}
+                  sx={{
+                    width: 42,
+                    height: 42,
+                    color: hotspotPlacementMode ? "#0284c7" : "#64748b",
+                    bgcolor: hotspotPlacementMode ? "#e0f2fe" : "transparent",
+                    "&:hover": { bgcolor: "#f1f5f9" },
+                  }}
+                >
+                  <AddLocationIcon sx={{ fontSize: 22 }} />
+                </IconButton>
+              </Tooltip>
+            </Stack>
+
+            <Box sx={{ flexGrow: 1 }} />
+
+            {/* Active Target Count Badge */}
+            <Tooltip title={`${selectedModelIds.size} Models Selected`} placement="right">
+              <Chip
+                label={selectedModelIds.size}
+                size="small"
+                sx={{
+                  fontWeight: 700,
+                  fontSize: 11,
+                  bgcolor: "#0284c7",
+                  color: "#ffffff",
+                  height: 26,
+                  minWidth: 26,
+                }}
+              />
+            </Tooltip>
+          </Paper>
+
+          {/* ── EXPANDED DETAIL SIDEBAR DRAWER ── */}
+          <Drawer
+            anchor="left"
+            variant="persistent"
+            open={deckOpen}
+            sx={{
+              "& .MuiDrawer-paper": {
+                position: "absolute",
+                top: 16,
+                left: 86,
+                width: 380,
+                height: "calc(100% - 32px)",
+                borderRadius: 3,
+                boxSizing: "border-box",
+                border: "1px solid #e2e8f0",
+                bgcolor: "#ffffff",
+                color: "#0f172a",
+                boxShadow: "0 12px 36px rgba(15, 23, 42, 0.14)",
+                overflow: "hidden",
+                zIndex: 1250,
+              },
+            }}
+          >
+            <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "#ffffff" }}>
+              {/* Header */}
+              <Box
+                sx={{
+                  p: 3,
+                  pb: 2.5,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  borderBottom: "1px solid #f1f5f9",
+                }}
+              >
+                <Box>
+                  <Typography
+                    variant="subtitle1"
                     sx={{
-                      height: 20,
-                      fontSize: 10,
                       fontWeight: 800,
-                      bgcolor: createdHotspots.length ? "#e0f2fe" : "#f1f5f9",
-                      color: createdHotspots.length ? "#0369a1" : "#64748b",
+                      fontSize: 18,
+                      letterSpacing: "-0.01em",
+                      color: "#0f172a",
+                      lineHeight: 1.2,
                     }}
-                  />
+                  >
+                    Plotting Viewport
+                  </Typography>
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      fontSize: 12,
+                      fontWeight: 500,
+                      color: "#64748b",
+                      mt: 0.6,
+                      display: "block",
+                    }}
+                  >
+                    Model Control & Hotspot Operations
+                  </Typography>
                 </Box>
 
-                <Paper variant="outlined" sx={{ borderRadius: 2.5, borderColor: "#e2e8f0", overflow: "hidden" }}>
-                  {createdHotspots.length === 0 ? (
-                    <Box sx={{ p: 3, textAlign: "center" }}>
-                      <Typography variant="body2" sx={{ fontSize: 12, color: "#94a3b8" }}>
-                        No hotspots added yet. Click &quot;Add Hotspot&quot; above to place one.
-                      </Typography>
-                    </Box>
-                  ) : (
-                    <List disablePadding>
-                      {createdHotspots.map((hotspot, index) => {
-                        const isEditing = editingHotspotId === hotspot.id;
+                <Tooltip title="Collapse Side Panel">
+                  <IconButton
+                    size="small"
+                    onClick={() => setDeckOpen(false)}
+                    sx={{
+                      color: "#64748b",
+                      bgcolor: "#f8fafc",
+                      border: "1px solid #e2e8f0",
+                      "&:hover": { bgcolor: "#f1f5f9", color: "#0f172a" },
+                    }}
+                  >
+                    <ChevronLeftIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </Box>
 
+              {/* Scrollable Content */}
+              <Box
+                sx={{
+                  flex: 1,
+                  overflowY: "auto",
+                  p: 3,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 3.5,
+                  "&::-webkit-scrollbar": { width: 6 },
+                  "&::-webkit-scrollbar-track": { bgcolor: "#f8fafc" },
+                  "&::-webkit-scrollbar-thumb": { bgcolor: "#cbd5e1", borderRadius: 3 },
+                }}
+              >
+                {/* SECTION 1: Active Targets */}
+                <Stack spacing={1.5}>
+                  <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <Typography
+                      variant="overline"
+                      sx={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        letterSpacing: "0.08em",
+                        color: "#475569",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      Active Targets
+                    </Typography>
+                    <Chip
+                      size="small"
+                      label={`${selectedModelIds.size} ACTIVE`}
+                      sx={{
+                        height: 22,
+                        fontSize: 10,
+                        fontWeight: 800,
+                        bgcolor: selectedModelIds.size ? "#e0f2fe" : "#f1f5f9",
+                        color: selectedModelIds.size ? "#0369a1" : "#64748b",
+                      }}
+                    />
+                  </Box>
+
+                  <Paper
+                    variant="outlined"
+                    sx={{
+                      borderRadius: 2.5,
+                      borderColor: "#e2e8f0",
+                      overflow: "hidden",
+                    }}
+                  >
+                    <List disablePadding>
+                      {loadedModelSummaries.map((m, index) => {
+                        const isChecked = selectedModelIds.has(m.instanceId);
                         return (
-                          <Box
-                            key={hotspot.id}
+                          <ListItemButton
+                            key={m.instanceId}
+                            onClick={() => toggleModelCheckbox(m.instanceId)}
                             sx={{
-                              p: 1.75,
-                              borderBottom: index < createdHotspots.length - 1 ? "1px solid #f1f5f9" : "none",
-                              bgcolor: isEditing ? "#f0f9ff" : "transparent",
+                              py: 1.5,
+                              px: 2,
+                              borderBottom: index < loadedModelSummaries.length - 1 ? "1px solid #f1f5f9" : "none",
+                              bgcolor: isChecked ? "#f0f9ff" : "transparent",
+                              "&:hover": { bgcolor: isChecked ? "#e0f2fe" : "#f8fafc" },
                             }}
                           >
-                            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
-                              <Box sx={{ minWidth: 0, flex: 1 }}>
-                                <Box sx={{ display: "flex", alignItems: "center", gap: 0.85 }}>
-                                  <RadioButtonCheckedIcon sx={{ fontSize: 15, color: "#0284c7" }} />
-                                  <Typography
-                                    variant="body2"
-                                    sx={{
-                                      fontSize: 12,
-                                      fontWeight: 700,
-                                      color: "#1e293b",
-                                      overflow: "hidden",
-                                      textOverflow: "ellipsis",
-                                      whiteSpace: "nowrap",
-                                    }}
-                                  >
-                                    {hotspot.id}
-                                  </Typography>
-                                </Box>
+                            <Checkbox
+                              checked={isChecked}
+                              tabIndex={-1}
+                              disableRipple
+                              size="small"
+                              sx={{
+                                p: 0,
+                                mr: 1.75,
+                                color: "#cbd5e1",
+                                "&.Mui-checked": { color: "#0284c7" },
+                              }}
+                            />
 
-                                <Typography
-                                  variant="caption"
-                                  sx={{
+                            <ListItemText
+                              primary={m.label}
+                              secondary={`Heading: ${Math.round(m.heading)}°`}
+                              slotProps={{
+                                primary: {
+                                  sx: {
+                                    fontSize: 13,
+                                    fontWeight: 700,
+                                    color: isChecked ? "#0369a1" : "#1e293b",
+                                  },
+                                },
+                                secondary: {
+                                  sx: {
                                     fontSize: 11,
+                                    fontWeight: 500,
                                     color: "#64748b",
-                                    display: "block",
-                                    mt: 0.4,
-                                    pl: 2.85,
-                                  }}
-                                >
-                                  {getHotspotSourceLabel(hotspot)} → <span style={{ color: "#0284c7", fontWeight: 700 }}>{getHotspotTargetLabel(hotspot)}</span>
-                                </Typography>
-                              </Box>
+                                    mt: 0.25,
+                                  },
+                                },
+                              }}
+                            />
 
-                              <Stack direction="row" spacing={0.75}>
-                                <Tooltip title="Edit Destination">
-                                  <IconButton
-                                    size="small"
-                                    onClick={() => beginEditHotspot(hotspot)}
-                                    sx={{
-                                      color: isEditing ? "#0284c7" : "#64748b",
-                                      bgcolor: isEditing ? "#e0f2fe" : "#f8fafc",
-                                      border: "1px solid #e2e8f0",
-                                      "&:hover": { bgcolor: "#f1f5f9" },
-                                    }}
-                                  >
-                                    <EditIcon fontSize="small" />
-                                  </IconButton>
-                                </Tooltip>
-
-                                <Tooltip title="Delete Hotspot">
-                                  <IconButton
-                                    size="small"
-                                    onClick={() => deleteCreatedHotspot(hotspot.id)}
-                                    sx={{
-                                      color: "#ef4444",
-                                      bgcolor: "#fef2f2",
-                                      border: "1px solid #fecaca",
-                                      "&:hover": { bgcolor: "#fee2e2" },
-                                    }}
-                                  >
-                                    <DeleteIcon fontSize="small" />
-                                  </IconButton>
-                                </Tooltip>
-                              </Stack>
-                            </Box>
-
-                            {isEditing && (
-                              <Box sx={{ mt: 1.5, pl: 2.85, display: "flex", gap: 1 }}>
-                                <FormControl fullWidth size="small">
-                                  <Select
-                                    value={hotspot.nextModelId}
-                                    onChange={(e) => updateCreatedHotspotLink(hotspot.id, e.target.value)}
-                                    sx={{ borderRadius: 1.5, fontSize: 11, fontWeight: 600, bgcolor: "#ffffff" }}
-                                  >
-                                    {Object.values(MODELS).map((model) => (
-                                      <MenuItem key={model.id} value={model.id}>
-                                        {model.label}
-                                      </MenuItem>
-                                    ))}
-                                  </Select>
-                                </FormControl>
-
-                                <IconButton size="small" onClick={exitHotspotEditMode} sx={{ border: "1px solid #cbd5e1" }}>
-                                  <CloseIcon fontSize="small" />
-                                </IconButton>
-                              </Box>
+                            {isChecked && (
+                              <Chip
+                                label="ACTIVE"
+                                size="small"
+                                sx={{
+                                  height: 20,
+                                  fontSize: 9,
+                                  fontWeight: 800,
+                                  color: "#0284c7",
+                                  bgcolor: "#e0f2fe",
+                                }}
+                              />
                             )}
-                          </Box>
+                          </ListItemButton>
                         );
                       })}
                     </List>
+                  </Paper>
+                </Stack>
+
+                <Divider sx={{ borderColor: "#f1f5f9" }} />
+
+                {/* SECTION 2: Model Controls */}
+                <Stack spacing={1.75}>
+                  <Box>
+                    <Typography
+                      variant="overline"
+                      sx={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        letterSpacing: "0.08em",
+                        color: "#475569",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      Model Controls
+                    </Typography>
+                    <Typography variant="body2" sx={{ fontSize: 12, color: "#64748b", mt: 0.3 }}>
+                      Position and orient active models on map
+                    </Typography>
+                  </Box>
+
+                  <Stack direction="row" spacing={1.5}>
+                    <Button
+                      fullWidth
+                      variant={placementMode ? "contained" : "outlined"}
+                      disabled={controlsDisabled && !placementMode}
+                      onClick={togglePlacementMode}
+                      startIcon={<OpenWithIcon />}
+                      sx={{
+                        py: 1.4,
+                        borderRadius: 2.5,
+                        textTransform: "none",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        borderColor: placementMode ? "#d97706" : "#cbd5e1",
+                        bgcolor: placementMode ? "#d97706" : "#ffffff",
+                        color: placementMode ? "#ffffff" : "#334155",
+                        "&:hover": {
+                          borderColor: placementMode ? "#b45309" : "#0284c7",
+                          bgcolor: placementMode ? "#b45309" : "#f0f9ff",
+                        },
+                      }}
+                    >
+                      {placementMode ? "Relocating" : "Move Object"}
+                    </Button>
+
+                    <Button
+                      fullWidth
+                      variant={compassOpen ? "contained" : "outlined"}
+                      disabled={controlsDisabled}
+                      onClick={() => !controlsDisabled && setCompassOpen((v) => !v)}
+                      startIcon={
+                        <ExploreIcon
+                          sx={{
+                            transform: `rotate(${compassDisplayDeg}deg)`,
+                            transition: "transform 0.2s ease",
+                          }}
+                        />
+                      }
+                      sx={{
+                        py: 1.4,
+                        borderRadius: 2.5,
+                        textTransform: "none",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        borderColor: compassOpen ? "#0284c7" : "#cbd5e1",
+                        bgcolor: compassOpen ? "#0284c7" : "#ffffff",
+                        color: compassOpen ? "#ffffff" : "#334155",
+                        "&:hover": {
+                          borderColor: "#0284c7",
+                          bgcolor: compassOpen ? "#0369a1" : "#f0f9ff",
+                        },
+                      }}
+                    >
+                      Orientation
+                    </Button>
+                  </Stack>
+
+                  {/* Slider / Preset Buttons */}
+                  {compassOpen && !controlsDisabled && (
+                    <Paper
+                      variant="outlined"
+                      sx={{
+                        p: 2.25,
+                        borderRadius: 2.5,
+                        borderColor: "#e2e8f0",
+                        bgcolor: "#f8fafc",
+                        mt: 0.5,
+                      }}
+                    >
+                      <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
+                        <Typography variant="caption" sx={{ fontSize: 11, fontWeight: 700, color: "#475569" }}>
+                          HEADING
+                        </Typography>
+                        <Typography variant="subtitle2" sx={{ fontSize: 16, fontWeight: 800, color: "#0284c7" }}>
+                          {Math.round(compassDisplayDeg)}°
+                        </Typography>
+                      </Box>
+
+                      <Slider
+                        value={compassDisplayDeg}
+                        min={0}
+                        max={359}
+                        onChange={(_, value) => setModelHeadingForSelection(value as number)}
+                        sx={{
+                          color: "#0284c7",
+                          py: 1.25,
+                          "& .MuiSlider-thumb": { width: 18, height: 18 },
+                        }}
+                      />
+
+                      <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                        {[0, 90, 180, 270].map((deg) => (
+                          <Button
+                            key={deg}
+                            size="small"
+                            fullWidth
+                            onClick={() => setModelHeadingForSelection(deg)}
+                            sx={{
+                              py: 0.6,
+                              borderRadius: 1.5,
+                              color: "#475569",
+                              fontSize: 10,
+                              fontWeight: 700,
+                              bgcolor: "#ffffff",
+                              border: "1px solid #cbd5e1",
+                              "&:hover": { bgcolor: "#e0f2fe", borderColor: "#38bdf8", color: "#0284c7" },
+                            }}
+                          >
+                            {deg === 0 ? "N 0°" : deg === 90 ? "E 90°" : deg === 180 ? "S 180°" : "W 270°"}
+                          </Button>
+                        ))}
+                      </Stack>
+                    </Paper>
                   )}
-                </Paper>
-              </Stack>
+                </Stack>
 
-              <Paper
-                variant="outlined"
-                sx={{
-                  p: 1.75,
-                  borderRadius: 2.5,
-                  borderColor: "#bae6fd",
-                  bgcolor: "#f0f9ff",
-                  display: "flex",
-                  gap: 1.5,
-                  alignItems: "flex-start",
-                }}
-              >
-                <LinkIcon sx={{ fontSize: 18, color: "#0284c7", mt: 0.2 }} />
-                <Typography variant="caption" sx={{ fontSize: 11, color: "#0369a1", lineHeight: 1.5 }}>
-                  Hotspots attach directly to model surfaces. Select destinations from the editor list above.
-                </Typography>
-              </Paper>
-            </Stack>
-          </Box>
+                <Divider sx={{ borderColor: "#f1f5f9" }} />
 
-          {/* Footer */}
-          <Box
-            sx={{
-              px: 3,
-              py: 2,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              borderTop: "1px solid #f1f5f9",
-              bgcolor: "#f8fafc",
-            }}
-          >
-            <Typography variant="caption" sx={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase" }}>
-              3D Spatial Renderer
-            </Typography>
-            <Chip label="ONLINE" size="small" sx={{ height: 20, fontSize: 9, fontWeight: 800, bgcolor: "#dcfce7", color: "#15803d" }} />
-          </Box>
-        </Box>
-      </Drawer>
+                {/* SECTION 3: Hotspot Editor */}
+                <Stack spacing={1.75}>
+                  <Box>
+                    <Typography
+                      variant="overline"
+                      sx={{
+                        fontSize: 11,
+                        fontWeight: 700,
+                        letterSpacing: "0.08em",
+                        color: "#475569",
+                        textTransform: "uppercase",
+                      }}
+                    >
+                      Hotspot Editor
+                    </Typography>
+                    <Typography variant="body2" sx={{ fontSize: 12, color: "#64748b", mt: 0.3 }}>
+                      Add interactive hotspots linking to target models
+                    </Typography>
+                  </Box>
+
+                  <Button
+                    fullWidth
+                    variant={hotspotPlacementMode ? "contained" : "outlined"}
+                    disabled={controlsDisabled && !hotspotPlacementMode}
+                    onClick={
+                      hotspotPlacementMode
+                        ? exitHotspotPlacementMode
+                        : placementMode || controlsDisabled
+                        ? undefined
+                        : enterHotspotPlacementMode
+                    }
+                    startIcon={<AddLocationIcon />}
+                    sx={{
+                      py: 1.4,
+                      borderRadius: 2.5,
+                      textTransform: "none",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: hotspotPlacementMode ? "#ffffff" : "#0284c7",
+                      bgcolor: hotspotPlacementMode ? "#0284c7" : "#ffffff",
+                      borderColor: hotspotPlacementMode ? "#0284c7" : "#38bdf8",
+                      "&:hover": {
+                        bgcolor: hotspotPlacementMode ? "#0369a1" : "#f0f9ff",
+                        borderColor: "#0284c7",
+                      },
+                    }}
+                  >
+                    {hotspotPlacementMode ? "Click Model to Place Hotspot" : "Add Hotspot"}
+                  </Button>
+
+                  {hotspotPlacementMode && (
+                    <Paper variant="outlined" sx={{ p: 2, borderRadius: 2.5, borderColor: "#e2e8f0", bgcolor: "#f8fafc" }}>
+                      <Typography variant="caption" sx={{ fontSize: 11, fontWeight: 700, color: "#475569", mb: 1, display: "block" }}>
+                        LINKS TO MODEL
+                      </Typography>
+
+                      <FormControl fullWidth size="small">
+                        <Select
+                          value={hotspotNextModelId}
+                          onChange={(e) => {
+                            const next = e.target.value;
+                            setHotspotNextModelId(next);
+                            if (lastCreatedHotspotIdRef.current) {
+                              updateCreatedHotspotLink(lastCreatedHotspotIdRef.current, next);
+                            }
+                          }}
+                          sx={{
+                            borderRadius: 1.5,
+                            bgcolor: "#ffffff",
+                            fontSize: 12,
+                            fontWeight: 600,
+                          }}
+                        >
+                          {Object.values(MODELS).map((model) => (
+                            <MenuItem key={model.id} value={model.id}>
+                              {model.label}
+                            </MenuItem>
+                          ))}
+                        </Select>
+                      </FormControl>
+                    </Paper>
+                  )}
+
+                  {/* Created Hotspots List */}
+                  <Stack spacing={1.25} sx={{ mt: 0.5 }}>
+                    <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <Typography variant="caption" sx={{ fontSize: 11, fontWeight: 700, color: "#475569" }}>
+                        CREATED HOTSPOTS
+                      </Typography>
+                      <Chip
+                        label={createdHotspots.length}
+                        size="small"
+                        sx={{
+                          height: 20,
+                          fontSize: 10,
+                          fontWeight: 800,
+                          bgcolor: createdHotspots.length ? "#e0f2fe" : "#f1f5f9",
+                          color: createdHotspots.length ? "#0369a1" : "#64748b",
+                        }}
+                      />
+                    </Box>
+
+                    <Paper variant="outlined" sx={{ borderRadius: 2.5, borderColor: "#e2e8f0", overflow: "hidden" }}>
+                      {createdHotspots.length === 0 ? (
+                        <Box sx={{ p: 3, textAlign: "center" }}>
+                          <Typography variant="body2" sx={{ fontSize: 12, color: "#94a3b8" }}>
+                            No hotspots added yet. Click &quot;Add Hotspot&quot; above to place one.
+                          </Typography>
+                        </Box>
+                      ) : (
+                        <List disablePadding>
+                          {createdHotspots.map((hotspot, index) => {
+                            const isEditing = editingHotspotId === hotspot.id;
+
+                            return (
+                              <Box
+                                key={hotspot.id}
+                                sx={{
+                                  p: 1.75,
+                                  borderBottom: index < createdHotspots.length - 1 ? "1px solid #f1f5f9" : "none",
+                                  bgcolor: isEditing ? "#f0f9ff" : "transparent",
+                                }}
+                              >
+                                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
+                                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                                    <Box sx={{ display: "flex", alignItems: "center", gap: 0.85 }}>
+                                      <RadioButtonCheckedIcon sx={{ fontSize: 15, color: "#0284c7" }} />
+                                      <Typography
+                                        variant="body2"
+                                        sx={{
+                                          fontSize: 12,
+                                          fontWeight: 700,
+                                          color: "#1e293b",
+                                          overflow: "hidden",
+                                          textOverflow: "ellipsis",
+                                          whiteSpace: "nowrap",
+                                        }}
+                                      >
+                                        {hotspot.id}
+                                      </Typography>
+                                    </Box>
+
+                                    <Typography
+                                      variant="caption"
+                                      sx={{
+                                        fontSize: 11,
+                                        color: "#64748b",
+                                        display: "block",
+                                        mt: 0.4,
+                                        pl: 2.85,
+                                      }}
+                                    >
+                                      {getHotspotSourceLabel(hotspot)} → <span style={{ color: "#0284c7", fontWeight: 700 }}>{getHotspotTargetLabel(hotspot)}</span>
+                                    </Typography>
+                                  </Box>
+
+                                  <Stack direction="row" spacing={0.75}>
+                                    <Tooltip title="Edit Destination">
+                                      <IconButton
+                                        size="small"
+                                        onClick={() => beginEditHotspot(hotspot)}
+                                        sx={{
+                                          color: isEditing ? "#0284c7" : "#64748b",
+                                          bgcolor: isEditing ? "#e0f2fe" : "#f8fafc",
+                                          border: "1px solid #e2e8f0",
+                                          "&:hover": { bgcolor: "#f1f5f9" },
+                                        }}
+                                      >
+                                        <EditIcon fontSize="small" />
+                                      </IconButton>
+                                    </Tooltip>
+
+                                    <Tooltip title="Delete Hotspot">
+                                      <IconButton
+                                        size="small"
+                                        onClick={() => deleteCreatedHotspot(hotspot.id)}
+                                        sx={{
+                                          color: "#ef4444",
+                                          bgcolor: "#fef2f2",
+                                          border: "1px solid #fecaca",
+                                          "&:hover": { bgcolor: "#fee2e2" },
+                                        }}
+                                      >
+                                        <DeleteIcon fontSize="small" />
+                                      </IconButton>
+                                    </Tooltip>
+                                  </Stack>
+                                </Box>
+
+                                {isEditing && (
+                                  <Box sx={{ mt: 1.5, pl: 2.85, display: "flex", gap: 1 }}>
+                                    <FormControl fullWidth size="small">
+                                      <Select
+                                        value={hotspot.nextModelId}
+                                        onChange={(e) => updateCreatedHotspotLink(hotspot.id, e.target.value)}
+                                        sx={{ borderRadius: 1.5, fontSize: 11, fontWeight: 600, bgcolor: "#ffffff" }}
+                                      >
+                                        {Object.values(MODELS).map((model) => (
+                                          <MenuItem key={model.id} value={model.id}>
+                                            {model.label}
+                                          </MenuItem>
+                                        ))}
+                                      </Select>
+                                    </FormControl>
+
+                                    <IconButton size="small" onClick={exitHotspotEditMode} sx={{ border: "1px solid #cbd5e1" }}>
+                                      <CloseIcon fontSize="small" />
+                                    </IconButton>
+                                  </Box>
+                                )}
+                              </Box>
+                            );
+                          })}
+                        </List>
+                      )}
+                    </Paper>
+                  </Stack>
+
+                  <Paper
+                    variant="outlined"
+                    sx={{
+                      p: 1.75,
+                      borderRadius: 2.5,
+                      borderColor: "#bae6fd",
+                      bgcolor: "#f0f9ff",
+                      display: "flex",
+                      gap: 1.5,
+                      alignItems: "flex-start",
+                    }}
+                  >
+                    <LinkIcon sx={{ fontSize: 18, color: "#0284c7", mt: 0.2 }} />
+                    <Typography variant="caption" sx={{ fontSize: 11, color: "#0369a1", lineHeight: 1.5 }}>
+                      Hotspots attach directly to model surfaces. Select destinations from the editor list above.
+                    </Typography>
+                  </Paper>
+                </Stack>
+              </Box>
+            </Box>
+          </Drawer>
+        </>
+      )}
 
       {/* ── TOP-RIGHT: CAMERA & MAP CONTROLS ── */}
       <Paper
