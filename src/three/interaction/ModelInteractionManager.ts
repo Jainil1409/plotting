@@ -104,6 +104,33 @@ export class ModelInteractionManager {
     };
   }
 
+  // Builds a world-space ray from a screen click using Google's
+  // view-projection matrix (stored in camera.projectionMatrix by the
+  // WebGLOverlayView). The camera's matrixWorld is never set by Google,
+  // so raycaster.setFromCamera() produces a wrong ray — this manual
+  // unprojection is the reliable way to raycast in this environment.
+  private buildWorldRay(
+    event: MouseEvent,
+    camera: THREE.PerspectiveCamera,
+    mapElement: HTMLElement
+  ): THREE.Ray {
+    const rect = mapElement.getBoundingClientRect();
+
+    const ndcX = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    const ndcY = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    const clipNear = new THREE.Vector3(ndcX, ndcY, -1);
+    const clipFar = new THREE.Vector3(ndcX, ndcY, 1);
+
+    const worldNear = clipNear.applyMatrix4(camera.projectionMatrixInverse);
+    const worldFar = clipFar.applyMatrix4(camera.projectionMatrixInverse);
+
+    const origin = worldNear;
+    const direction = worldFar.sub(worldNear).normalize();
+
+    return new THREE.Ray(origin, direction);
+  }
+
   // Calibration helper: Alt+click to log pivot-local coordinates.
   // Returns the local position or null if no model geometry was hit.
   calibrateLocalPosition(
@@ -114,40 +141,28 @@ export class ModelInteractionManager {
   ): THREE.Vector3 | null {
     const rect = mapElement.getBoundingClientRect();
 
-    const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-    this.raycaster.setFromCamera(new THREE.Vector2(x, y), camera);
-
     // Refresh the pivot's world matrix AND its whole descendant subtree
-    // BEFORE raycasting, just like pickMesh() does. The Google Maps
-    // WebGLOverlayView sets the camera projection matrix per frame, and
-    // the model sits under a nested pivot -> centerGroup -> model chain.
-    // If the meshes' world matrices are stale, intersectObject() returns
-    // zero hits and we'd never be able to place a hotspot on the surface.
+    // BEFORE raycasting so the ray hits current geometry.
     pivot.updateMatrixWorld(true);
-
-    const hits = this.raycaster.intersectObject(pivot, true);
-
-    if (hits.length > 0) {
-      return pivot.worldToLocal(hits[0].point.clone());
-    }
-
-    // ── Google Maps WebGLOverlayView projection fallback ──
-    // Raycasting against the model is unreliable under Google's
-    // transformer-driven camera (same reason hotspot picking and mesh
-    // picking both use screen-space distance checks). Fall back to the
-    // proven technique: project each mesh's bounding-sphere center onto
-    // the screen, find the mesh nearest to the click, and use its
-    // surface point (converted to pivot-local space) as the hotspot
-    // position.
-    const localX = event.clientX - rect.left;
-    const localY = event.clientY - rect.top;
 
     const meshes: THREE.Mesh[] = [];
     pivot.traverse((obj) => {
       if ((obj as THREE.Mesh).isMesh) meshes.push(obj as THREE.Mesh);
     });
+
+    // 1. World-space ray from the click (accurate surface point).
+    const ray = this.buildWorldRay(event, camera, mapElement);
+    this.raycaster.ray.copy(ray);
+    const intersections = this.raycaster.intersectObjects(meshes, true);
+
+    if (intersections.length > 0) {
+      return pivot.worldToLocal(intersections[0].point.clone());
+    }
+
+    // 2. Fallback: nearest mesh center by screen distance (handles
+    //    projection edge cases where the ray misses).
+    const localX = event.clientX - rect.left;
+    const localY = event.clientY - rect.top;
 
     let bestMesh: THREE.Mesh | null = null;
     let bestScore = Infinity;

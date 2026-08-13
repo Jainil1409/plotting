@@ -111,6 +111,24 @@ export default function GoogleMap3D() {
     hotspotNextModelIdRef.current = hotspotNextModelId;
   }, [hotspotNextModelId]);
   const createdHotspotsRef = useRef<MapHotspotConfig[]>([]);
+  // Tracks the most recently created hotspot so the placement-mode
+  // "Links to" dropdown can re-target it live (instead of only applying
+  // to the NEXT hotspot).
+  const lastCreatedHotspotIdRef = useRef<string | null>(null);
+
+  // Editing an existing hotspot's "Links to" target: when
+  // hotspotEditMode is on, clicking an existing hotspot selects it and
+  // the HUD shows a dropdown to change which model it opens.
+  const [hotspotEditMode, setHotspotEditMode] = useState(false);
+  const hotspotEditModeRef = useRef(false);
+  const [editingHotspotId, setEditingHotspotId] = useState<string | null>(null);
+  const [editingHotspotLink, setEditingHotspotLink] = useState<string>(
+    DEFAULT_MODEL_CONFIG.modelId
+  );
+  const editingHotspotLinkRef = useRef<string>(DEFAULT_MODEL_CONFIG.modelId);
+  useEffect(() => {
+    editingHotspotLinkRef.current = editingHotspotLink;
+  }, [editingHotspotLink]);
   const [propertyPopup, setPropertyPopup] = useState<PropertyPopup | null>(null);
   const [, setModelHeadingDeg] = useState(MODEL_HEADING);
   const [compassOpen, setCompassOpen] = useState(false);
@@ -366,6 +384,30 @@ export default function GoogleMap3D() {
     setHotspotPlacementMode(false);
   };
 
+  const enterHotspotEditMode = () => {
+    // Disable the model-move placement mode if it happens to be active so
+    // the two "click-to-place" flows never fight over the same click.
+    if (placementListenerRef.current) {
+      window.google.maps.event.removeListener(placementListenerRef.current);
+      placementListenerRef.current = null;
+    }
+    placementModeRef.current = false;
+    setPlacementMode(false);
+
+    hotspotPlacementModeRef.current = false;
+    setHotspotPlacementMode(false);
+
+    hotspotEditModeRef.current = true;
+    setHotspotEditMode(true);
+    setEditingHotspotId(null);
+  };
+
+  const exitHotspotEditMode = () => {
+    hotspotEditModeRef.current = false;
+    setHotspotEditMode(false);
+    setEditingHotspotId(null);
+  };
+
   const handleScenePick = (event: ReactMouseEvent<HTMLDivElement>) => {
     if (placementModeRef.current) return;
     const renderer = rendererRef.current;
@@ -389,6 +431,14 @@ export default function GoogleMap3D() {
     const hotspot = hotspotManagerRef.current.pickHotspotAt(nativeEvent, camera, mapElement);
 
     if (hotspot) {
+      // In edit mode, clicking a hotspot selects it so the user can change
+      // which model it links to (instead of opening the viewer).
+      if (hotspotEditModeRef.current) {
+        setEditingHotspotId(hotspot.id);
+        setEditingHotspotLink(hotspot.nextModelId);
+        return;
+      }
+
       const nextModel = getModelDefinition(hotspot.nextModelId);
       if (nextModel) setViewerModel(nextModel);
       return;
@@ -398,20 +448,35 @@ export default function GoogleMap3D() {
     // When hotspot placement mode is on, a click on a model surface (that
     // didn't hit an existing hotspot) creates a new map hotspot at that
     // exact surface point, linked to the model selected in the HUD.
+    // The hotspot is placed on whichever SELECTED model the click lands on
+    // (so with multiple active targets, each model gets its own hotspot).
     if (hotspotPlacementModeRef.current) {
-      const instanceId = activeModelInstanceIdRef.current;
-      const loaded = modelManagerRef.current.getModel(instanceId);
-      const fallback = modelManagerRef.current.getAllModels()[0];
-      const target = loaded ?? fallback;
-      if (!target) return;
+      const selectedIds = Array.from(selectedModelIdsRef.current);
+      const candidates =
+        selectedIds.length > 0
+          ? selectedIds
+              .map((id) => modelManagerRef.current.getModel(id))
+              .filter((m): m is LoadedModel => m !== null)
+          : modelManagerRef.current.getAllModels();
 
-      const local = interactionManagerRef.current?.calibrateLocalPosition(
-        nativeEvent,
-        camera,
-        target.pivot,
-        mapElement
-      );
-      if (!local) return;
+      let target: LoadedModel | null = null;
+      let local: THREE.Vector3 | null = null;
+
+      for (const candidate of candidates) {
+        const hit = interactionManagerRef.current?.calibrateLocalPosition(
+          nativeEvent,
+          camera,
+          candidate.pivot,
+          mapElement
+        );
+        if (hit) {
+          target = candidate;
+          local = hit;
+          break;
+        }
+      }
+
+      if (!target || !local) return;
 
       const id =
         typeof window !== "undefined"
@@ -432,6 +497,7 @@ export default function GoogleMap3D() {
       );
 
       createdHotspotsRef.current = [...createdHotspotsRef.current, newHotspot];
+      lastCreatedHotspotIdRef.current = id;
 
       // Stay in placement mode so the user can drop several hotspots in a
       // row; they turn it off with the HUD Toggle button.
@@ -755,7 +821,63 @@ export default function GoogleMap3D() {
                     <span className="shrink-0">Links to</span>
                     <select
                       value={hotspotNextModelId}
-                      onChange={(e) => setHotspotNextModelId(e.target.value)}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setHotspotNextModelId(next);
+                        // Re-target the most recently created hotspot live so
+                        // changing the dropdown after placing a hotspot updates
+                        // that hotspot (not just the next one).
+                        if (lastCreatedHotspotIdRef.current) {
+                          hotspotManagerRef.current.updateHotspotLink(
+                            lastCreatedHotspotIdRef.current,
+                            next
+                          );
+                          rendererRef.current?.requestRedraw();
+                        }
+                      }}
+                      className="flex-1 min-w-0 bg-transparent text-slate-100 font-bold outline-none cursor-pointer text-right select-text"
+                    >
+                      {Object.values(MODELS).map((model) => (
+                        <option key={model.id} value={model.id} className="bg-slate-900 text-slate-100">
+                          {model.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
+
+                {/* Edit Hotspot Link Dock */}
+                <button
+                  type="button"
+                  onClick={
+                    hotspotEditMode
+                      ? exitHotspotEditMode
+                      : placementMode || controlsDisabled
+                      ? undefined
+                      : enterHotspotEditMode
+                  }
+                  disabled={controlsDisabled && !hotspotEditMode}
+                  className={`flex items-center justify-center gap-2 text-xs font-bold py-2.5 px-3 rounded-2xl border transition-all ${
+                    hotspotEditMode
+                      ? "bg-violet-500/20 border-violet-500/60 text-violet-300 hud-glow animate-pulse"
+                      : "bg-slate-900/80 border-slate-800 text-slate-200 hover:border-violet-500/40 hover:text-violet-300"
+                  }`}
+                >
+                  <span className="text-sm">{hotspotEditMode ? "🎯" : "✏️"}</span>
+                  <span>{hotspotEditMode ? "Select hotspot..." : "Edit Hotspot Link"}</span>
+                </button>
+
+                {hotspotEditMode && editingHotspotId && (
+                  <label className="flex items-center justify-between gap-2 text-xs font-semibold px-3 py-2 rounded-2xl border border-slate-800/80 bg-slate-900/50 text-slate-300">
+                    <span className="shrink-0">Links to</span>
+                    <select
+                      value={editingHotspotLink}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setEditingHotspotLink(next);
+                        hotspotManagerRef.current.updateHotspotLink(editingHotspotId, next);
+                        rendererRef.current?.requestRedraw();
+                      }}
                       className="flex-1 min-w-0 bg-transparent text-slate-100 font-bold outline-none cursor-pointer text-right select-text"
                     >
                       {Object.values(MODELS).map((model) => (

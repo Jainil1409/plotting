@@ -32,14 +32,11 @@ export class HotspotManager {
         transparent: true,
         opacity: 0.95,
         side: THREE.DoubleSide,
-        depthTest: false,
-        // depthTest:false with the DEFAULT depthWrite:true is an
-        // inconsistent combo: this mesh ignores the depth buffer when
-        // deciding whether to draw, but still writes into it — which
-        // produces frame-to-frame inconsistent occlusion against
-        // whatever else touches that buffer (Maps' own layers, or the
-        // other two rings). depthWrite:false matches the "always on
-        // top, never occluded" behavior depthTest:false already implies.
+        // depthTest:true lets the model's geometry occlude hotspots that
+        // are on the far side — a hotspot on the front of the model is no
+        // longer visible through the back. depthWrite:false keeps the
+        // marker from writing depth so it can't occlude other geometry.
+        depthTest: true,
         depthWrite: false,
       })
     );
@@ -59,7 +56,7 @@ export class HotspotManager {
         transparent: true,
         opacity: 0.5,
         side: THREE.DoubleSide,
-        depthTest: false,
+        depthTest: true,
         depthWrite: false,
       })
     );
@@ -79,7 +76,7 @@ export class HotspotManager {
         transparent: true,
         opacity: 0.9,
         side: THREE.DoubleSide,
-        depthTest: false,
+        depthTest: true,
         depthWrite: false,
       })
     );
@@ -134,6 +131,17 @@ export class HotspotManager {
     return this.hotspots.get(hotspotId) ?? null;
   }
 
+  // Updates which model a hotspot opens when clicked. Used by the HUD
+  // "Links to" control so the user can re-target an existing hotspot
+  // without deleting and re-creating it.
+  updateHotspotLink(hotspotId: string, nextModelId: string) {
+    const hotspot = this.hotspots.get(hotspotId);
+    if (!hotspot) return;
+
+    hotspot.nextModelId = nextModelId;
+    hotspot.group.userData.nextModelId = nextModelId;
+  }
+
   getAllHotspots() {
     return Array.from(this.hotspots.values());
   }
@@ -158,9 +166,22 @@ export class HotspotManager {
       -((event.clientY - rect.top) / rect.height) * 2 + 1
     );
 
-    const raycaster = new THREE.Raycaster();
+    // Build a world-space ray from the click using Google's
+    // view-projection matrix (camera.matrixWorld is never set by the
+    // WebGLOverlayView, so raycaster.setFromCamera() is unreliable).
+    const ndcX = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    const ndcY = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
-    raycaster.setFromCamera(mouse, camera);
+    const clipNear = new THREE.Vector3(ndcX, ndcY, -1);
+    const clipFar = new THREE.Vector3(ndcX, ndcY, 1);
+
+    const worldNear = clipNear.applyMatrix4(camera.projectionMatrixInverse);
+    const worldFar = clipFar.applyMatrix4(camera.projectionMatrixInverse);
+
+    const raycaster = new THREE.Raycaster(
+      worldNear,
+      worldFar.sub(worldNear).normalize()
+    );
 
     const objects: THREE.Object3D[] = [];
 
@@ -170,29 +191,23 @@ export class HotspotManager {
 
     const intersections = raycaster.intersectObjects(objects, true);
 
-    if (intersections.length === 0) {
-      // Fallback: screen-space distance check to handle
-      // Google Maps WebGLOverlayView projection mismatches.
-      return this.pickHotspotByScreenDistance(
-        event,
-        rect,
-        camera
-      );
-    }
+    if (intersections.length > 0) {
+      let current: THREE.Object3D | null = intersections[0].object;
 
-    let current: THREE.Object3D | null = intersections[0].object;
+      while (current) {
+        if (current.userData.type === "hotspot") {
+          const hotspotId = current.userData.hotspotId as string;
 
-    while (current) {
-      if (current.userData.type === "hotspot") {
-        const hotspotId = current.userData.hotspotId as string;
+          return this.getHotspot(hotspotId);
+        }
 
-        return this.getHotspot(hotspotId);
+        current = current.parent;
       }
-
-      current = current.parent;
     }
 
-    return null;
+    // Fallback: screen-space distance check to handle
+    // Google Maps WebGLOverlayView projection mismatches.
+    return this.pickHotspotByScreenDistance(event, rect, camera);
   }
 
   private pickHotspotByScreenDistance(
