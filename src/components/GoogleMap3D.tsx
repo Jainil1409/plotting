@@ -29,6 +29,38 @@ import {
 
 import ModelViewerOverlay from "@/src/components/ModelViewerOverlay";
 
+import Drawer from "@mui/material/Drawer";
+import Box from "@mui/material/Box";
+import Typography from "@mui/material/Typography";
+import Button from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
+import Checkbox from "@mui/material/Checkbox";
+import FormControl from "@mui/material/FormControl";
+import Select from "@mui/material/Select";
+import MenuItem from "@mui/material/MenuItem";
+import Slider from "@mui/material/Slider";
+import Divider from "@mui/material/Divider";
+import Chip from "@mui/material/Chip";
+import Tooltip from "@mui/material/Tooltip";
+import List from "@mui/material/List";
+import ListItemButton from "@mui/material/ListItemButton";
+import ListItemText from "@mui/material/ListItemText";
+import Stack from "@mui/material/Stack";
+import Paper from "@mui/material/Paper";
+
+import MenuIcon from "@mui/icons-material/Menu";
+import ChevronLeftIcon from "@mui/icons-material/ChevronLeft";
+import CloseIcon from "@mui/icons-material/Close";
+import OpenWithIcon from "@mui/icons-material/OpenWith"; // New Move Object Icon
+import AddLocationIcon from "@mui/icons-material/AddLocation"; // New Hotspot Icon
+import ExploreIcon from "@mui/icons-material/Explore";
+import LinkIcon from "@mui/icons-material/Link";
+import EditIcon from "@mui/icons-material/Edit";
+import DeleteIcon from "@mui/icons-material/Delete";
+import RadioButtonCheckedIcon from "@mui/icons-material/RadioButtonChecked";
+import LayersIcon from "@mui/icons-material/Layers";
+import TuneIcon from "@mui/icons-material/Tune";
+
 const GOOGLE_MAPS_API_KEY = "AIzaSyBCswT9ODeUU9ByGUjbRg1KzV-nUF3BFkU"; // demo key
 
 const defaultModelConfig = getModelConfig(DEFAULT_MODEL_INSTANCE_ID);
@@ -39,18 +71,6 @@ if (!defaultModelConfig) {
 const DEFAULT_MODEL_CONFIG: ModelConfig = defaultModelConfig;
 const DEFAULT_ANCHOR = DEFAULT_MODEL_CONFIG.anchor;
 const MODEL_HEADING = DEFAULT_MODEL_CONFIG.heading;
-
-// Cardinal compass dial mapping (0° = N, clockwise)
-const COMPASS_DIAL: { label: string; deg: number; x: number; y: number }[] = [
-  { label: "N", deg: 0, x: 75, y: 16 },
-  { label: "NE", deg: 45, x: 116, y: 32 },
-  { label: "E", deg: 90, x: 132, y: 75 },
-  { label: "SE", deg: 135, x: 116, y: 116 },
-  { label: "S", deg: 180, x: 75, y: 132 },
-  { label: "SW", deg: 225, x: 32, y: 116 },
-  { label: "W", deg: 270, x: 16, y: 75 },
-  { label: "NW", deg: 315, x: 32, y: 32 },
-];
 
 function cloneModelConfig(config: ModelConfig): ModelConfig {
   return {
@@ -98,9 +118,6 @@ export default function GoogleMap3D() {
   const [placementMode, setPlacementMode] = useState(false);
   const placementModeRef = useRef(false);
 
-  // Dynamic map-hotspot creation: when hotspotPlacementMode is on, clicking
-  // a model surface places a new hotspot there. The hotspot links to the
-  // model chosen in hotspotNextModelId (defaults to the model's own id).
   const [hotspotPlacementMode, setHotspotPlacementMode] = useState(false);
   const hotspotPlacementModeRef = useRef(false);
   const [hotspotNextModelId, setHotspotNextModelId] = useState<string>(
@@ -110,15 +127,11 @@ export default function GoogleMap3D() {
   useEffect(() => {
     hotspotNextModelIdRef.current = hotspotNextModelId;
   }, [hotspotNextModelId]);
+
   const createdHotspotsRef = useRef<MapHotspotConfig[]>([]);
-  // Tracks the most recently created hotspot so the placement-mode
-  // "Links to" dropdown can re-target it live (instead of only applying
-  // to the NEXT hotspot).
+  const [createdHotspots, setCreatedHotspots] = useState<MapHotspotConfig[]>([]);
   const lastCreatedHotspotIdRef = useRef<string | null>(null);
 
-  // Editing an existing hotspot's "Links to" target: when
-  // hotspotEditMode is on, clicking an existing hotspot selects it and
-  // the HUD shows a dropdown to change which model it opens.
   const [hotspotEditMode, setHotspotEditMode] = useState(false);
   const hotspotEditModeRef = useRef(false);
   const [editingHotspotId, setEditingHotspotId] = useState<string | null>(null);
@@ -129,11 +142,12 @@ export default function GoogleMap3D() {
   useEffect(() => {
     editingHotspotLinkRef.current = editingHotspotLink;
   }, [editingHotspotLink]);
+
   const [propertyPopup, setPropertyPopup] = useState<PropertyPopup | null>(null);
   const [, setModelHeadingDeg] = useState(MODEL_HEADING);
   const [compassOpen, setCompassOpen] = useState(false);
 
-  // Collapsible state for Tactical Viewport Command Deck
+  // Sidebar extension state: false = mini rail only, true = extended detail panel
   const [deckOpen, setDeckOpen] = useState(true);
 
   const [loadedModelSummaries, setLoadedModelSummaries] = useState<ModelSummary[]>([]);
@@ -365,9 +379,75 @@ export default function GoogleMap3D() {
     });
   };
 
+  const getHotspotSourceLabel = (hotspot: MapHotspotConfig) =>
+    loadedModelSummaries.find((model) => model.instanceId === hotspot.modelInstanceId)?.label ??
+    hotspot.modelInstanceId;
+
+  const getHotspotTargetLabel = (hotspot: MapHotspotConfig) =>
+    getModelDefinition(hotspot.nextModelId)?.label ?? hotspot.nextModelId;
+
+  const beginEditHotspot = (hotspot: MapHotspotConfig) => {
+    if (placementListenerRef.current) {
+      window.google?.maps?.event?.removeListener(placementListenerRef.current);
+      placementListenerRef.current = null;
+    }
+
+    placementModeRef.current = false;
+    hotspotPlacementModeRef.current = false;
+    hotspotEditModeRef.current = true;
+
+    setPlacementMode(false);
+    setHotspotPlacementMode(false);
+    setHotspotEditMode(true);
+    setEditingHotspotId(hotspot.id);
+    setEditingHotspotLink(hotspot.nextModelId);
+  };
+
+  const updateCreatedHotspotLink = (hotspotId: string, nextModelId: string) => {
+    hotspotManagerRef.current.updateHotspotLink(hotspotId, nextModelId);
+
+    setCreatedHotspots((prev) =>
+      prev.map((hotspot) =>
+        hotspot.id === hotspotId ? { ...hotspot, nextModelId } : hotspot
+      )
+    );
+
+    createdHotspotsRef.current = createdHotspotsRef.current.map((hotspot) =>
+      hotspot.id === hotspotId ? { ...hotspot, nextModelId } : hotspot
+    );
+
+    if (editingHotspotId === hotspotId) {
+      setEditingHotspotLink(nextModelId);
+    }
+
+    rendererRef.current?.requestRedraw();
+  };
+
+  const deleteCreatedHotspot = (hotspotId: string) => {
+    const manager = hotspotManagerRef.current as HotspotManager & {
+      removeHotspot?: (id: string) => void;
+    };
+    manager.removeHotspot?.(hotspotId);
+
+    createdHotspotsRef.current = createdHotspotsRef.current.filter(
+      (hotspot) => hotspot.id !== hotspotId
+    );
+    setCreatedHotspots((prev) => prev.filter((hotspot) => hotspot.id !== hotspotId));
+
+    if (lastCreatedHotspotIdRef.current === hotspotId) {
+      lastCreatedHotspotIdRef.current = createdHotspotsRef.current.at(-1)?.id ?? null;
+    }
+
+    if (editingHotspotId === hotspotId) {
+      setEditingHotspotId(null);
+      setHotspotEditMode(false);
+      hotspotEditModeRef.current = false;
+    }
+
+    rendererRef.current?.requestRedraw();
+  };
+
   const enterHotspotPlacementMode = () => {
-    // Disable the model-move placement mode if it happens to be active so
-    // the two "click-to-place" flows never fight over the same click.
     if (placementListenerRef.current) {
       window.google.maps.event.removeListener(placementListenerRef.current);
       placementListenerRef.current = null;
@@ -382,24 +462,6 @@ export default function GoogleMap3D() {
   const exitHotspotPlacementMode = () => {
     hotspotPlacementModeRef.current = false;
     setHotspotPlacementMode(false);
-  };
-
-  const enterHotspotEditMode = () => {
-    // Disable the model-move placement mode if it happens to be active so
-    // the two "click-to-place" flows never fight over the same click.
-    if (placementListenerRef.current) {
-      window.google.maps.event.removeListener(placementListenerRef.current);
-      placementListenerRef.current = null;
-    }
-    placementModeRef.current = false;
-    setPlacementMode(false);
-
-    hotspotPlacementModeRef.current = false;
-    setHotspotPlacementMode(false);
-
-    hotspotEditModeRef.current = true;
-    setHotspotEditMode(true);
-    setEditingHotspotId(null);
   };
 
   const exitHotspotEditMode = () => {
@@ -431,8 +493,6 @@ export default function GoogleMap3D() {
     const hotspot = hotspotManagerRef.current.pickHotspotAt(nativeEvent, camera, mapElement);
 
     if (hotspot) {
-      // In edit mode, clicking a hotspot selects it so the user can change
-      // which model it links to (instead of opening the viewer).
       if (hotspotEditModeRef.current) {
         setEditingHotspotId(hotspot.id);
         setEditingHotspotLink(hotspot.nextModelId);
@@ -444,12 +504,6 @@ export default function GoogleMap3D() {
       return;
     }
 
-    // ── DYNAMIC HOTSPOT CREATION ──
-    // When hotspot placement mode is on, a click on a model surface (that
-    // didn't hit an existing hotspot) creates a new map hotspot at that
-    // exact surface point, linked to the model selected in the HUD.
-    // The hotspot is placed on whichever SELECTED model the click lands on
-    // (so with multiple active targets, each model gets its own hotspot).
     if (hotspotPlacementModeRef.current) {
       const selectedIds = Array.from(selectedModelIdsRef.current);
       const candidates =
@@ -497,10 +551,9 @@ export default function GoogleMap3D() {
       );
 
       createdHotspotsRef.current = [...createdHotspotsRef.current, newHotspot];
+      setCreatedHotspots((prev) => [...prev, newHotspot]);
       lastCreatedHotspotIdRef.current = id;
 
-      // Stay in placement mode so the user can drop several hotspots in a
-      // row; they turn it off with the HUD Toggle button.
       renderer.requestRedraw();
       return;
     }
@@ -598,446 +651,877 @@ export default function GoogleMap3D() {
   const controlsDisabled = selectedModelIds.size === 0;
 
   return (
-    <div className="spatial-ui-root relative w-full h-full font-sans select-none overflow-hidden bg-slate-950 text-slate-100">
-      <style>{`
-        .hud-glass {
-          background: rgba(11, 19, 36, 0.72);
-          backdrop-filter: blur(20px) saturate(180%);
-          -webkit-backdrop-filter: blur(20px) saturate(180%);
-          border: 1px solid rgba(56, 189, 248, 0.18);
-          box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
-        }
-
-        .hud-glow {
-          box-shadow: 0 0 20px rgba(56, 189, 248, 0.25);
-        }
-
-        .hud-chip-active {
-          background: linear-gradient(135deg, rgba(56, 189, 248, 0.25), rgba(14, 165, 233, 0.08));
-          border-color: rgba(56, 189, 248, 0.6);
-          color: #38bdf8;
-        }
-
-        .hud-slider::-webkit-slider-thumb {
-          -webkit-appearance: none;
-          width: 14px;
-          height: 14px;
-          border-radius: 50%;
-          background: #38bdf8;
-          box-shadow: 0 0 10px #38bdf8;
-          cursor: pointer;
-        }
-
-        /* Tactical Compass Dial Ring */
-        .compass-dial-wrap {
-          position: relative;
-          width: 150px;
-          height: 150px;
-          margin: 4px auto;
-        }
-
-        .compass-dial-ring {
-          position: absolute;
-          inset: 0;
-          border-radius: 50%;
-          border: 1px dashed rgba(56, 189, 248, 0.3);
-          background: radial-gradient(circle at center, rgba(15, 23, 42, 0.8) 0%, rgba(15, 23, 42, 0.4) 60%, transparent 70%);
-        }
-
-        .compass-needle {
-          position: absolute;
-          left: 50%;
-          top: 50%;
-          width: 3px;
-          height: 42px;
-          background: linear-gradient(180deg, #38bdf8, rgba(56, 189, 248, 0.1));
-          border-radius: 3px;
-          transform-origin: 50% 100%;
-          box-shadow: 0 0 8px #38bdf8;
-          transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .compass-hub {
-          position: absolute;
-          left: 50%;
-          top: 50%;
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-          background: #38bdf8;
-          transform: translate(-50%, -50%);
-          box-shadow: 0 0 10px #38bdf8;
-        }
-
-        .compass-dial-btn {
-          position: absolute;
-          width: 28px;
-          height: 28px;
-          border-radius: 8px;
-          border: 1px solid rgba(56, 189, 248, 0.2);
-          background: rgba(15, 23, 42, 0.85);
-          color: #94a3b8;
-          font-size: 10px;
-          font-weight: 800;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          transform: translate(-50%, -50%);
-          transition: all 0.15s ease;
-        }
-
-        .compass-dial-btn:hover {
-          background: rgba(56, 189, 248, 0.2);
-          color: #38bdf8;
-          border-color: rgba(56, 189, 248, 0.5);
-        }
-
-        .compass-dial-btn.is-active {
-          background: #38bdf8;
-          color: #0f172a;
-          border-color: #38bdf8;
-          box-shadow: 0 0 10px rgba(56, 189, 248, 0.6);
-        }
-      `}</style>
-
-      {/* ── TOP-LEFT: SPATIAL HUD COMMAND DECK (COLLAPSIBLE) ── */}
-      <div className="absolute top-5 left-5 z-20 w-80 flex flex-col gap-3">
-        <div className="hud-glass rounded-3xl p-4 flex flex-col gap-3 transition-all duration-300">
-          
-          {/* Collapsible Header Toggle */}
-          <button
-            type="button"
+    <Box
+      className="spatial-ui-root"
+      sx={{
+        position: "relative",
+        width: "100%",
+        height: "100%",
+        overflow: "hidden",
+        bgcolor: "#f4f6f9",
+        color: "#1e293b",
+        fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+        userSelect: "none",
+      }}
+    >
+      {/* ── GOOGLE MAPS STYLE MINI RAIL SIDEBAR (ALWAYS ANCHORED LEFT) ── */}
+      <Paper
+        elevation={4}
+        sx={{
+          position: "absolute",
+          top: 16,
+          left: 16,
+          zIndex: 1300,
+          width: 58,
+          height: "calc(100% - 32px)",
+          borderRadius: 3,
+          bgcolor: "#ffffff",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          py: 2.5,
+          boxShadow: "0 8px 32px rgba(15, 23, 42, 0.12)",
+          border: "1px solid #e2e8f0",
+        }}
+      >
+        {/* Toggle Menu Button */}
+        <Tooltip title={deckOpen ? "Collapse Sidebar" : "Expand Sidebar"} placement="right">
+          <IconButton
             onClick={() => setDeckOpen((prev) => !prev)}
-            className="flex items-center justify-between w-full border-b border-sky-500/15 pb-2.5 outline-none group cursor-pointer"
+            sx={{
+              width: 42,
+              height: 42,
+              bgcolor: deckOpen ? "#0284c7" : "#f1f5f9",
+              color: deckOpen ? "#ffffff" : "#0f172a",
+              "&:hover": {
+                bgcolor: deckOpen ? "#0369a1" : "#e2e8f0",
+              },
+              transition: "all 0.2s ease",
+            }}
           >
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse shadow-[0_0_8px_#38bdf8]" />
-              <span className="text-[11px] font-black tracking-widest text-sky-400/90 uppercase group-hover:text-sky-300 transition-colors">
-                Tactical Viewport
-              </span>
-            </div>
-            <span className="text-xs text-sky-400/80 font-mono font-bold transition-transform duration-300">
-              {deckOpen ? "▲" : "▼"}
-            </span>
-          </button>
+            {deckOpen ? <ChevronLeftIcon /> : <MenuIcon />}
+          </IconButton>
+        </Tooltip>
 
-          {deckOpen && (
-            <>
-              {/* Active Targets Checkbox List */}
-              <div className="flex flex-col gap-1.5 pt-1">
-                <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                  Active Targets
-                </label>
-                <div className="flex flex-col gap-1.5 max-h-36 overflow-y-auto pr-1">
-                  {loadedModelSummaries.map((m) => {
+        <Divider sx={{ width: 32, borderColor: "#e2e8f0", my: 2.5 }} />
+
+        {/* Quick Action Icons with Increased Spacing & Updated Icons */}
+        <Stack spacing={3.5} sx={{ alignItems: "center" }}>
+          <Tooltip title="Target Models" placement="right">
+            <IconButton
+              onClick={() => setDeckOpen(true)}
+              sx={{
+                width: 42,
+                height: 42,
+                color: selectedModelIds.size > 0 ? "#0284c7" : "#64748b",
+                bgcolor: selectedModelIds.size > 0 ? "#e0f2fe" : "transparent",
+                "&:hover": { bgcolor: "#f1f5f9" },
+              }}
+            >
+              <LayersIcon sx={{ fontSize: 22 }} />
+            </IconButton>
+          </Tooltip>
+
+          {/* Updated Moving Object Icon (OpenWithIcon) */}
+          <Tooltip title="Move Object" placement="right">
+            <IconButton
+              disabled={controlsDisabled}
+              onClick={() => {
+                setDeckOpen(true);
+                enterPlacementMode();
+              }}
+              sx={{
+                width: 42,
+                height: 42,
+                color: placementMode ? "#d97706" : "#64748b",
+                bgcolor: placementMode ? "#fef3c7" : "transparent",
+                "&:hover": { bgcolor: "#f1f5f9" },
+              }}
+            >
+              <OpenWithIcon sx={{ fontSize: 22 }} />
+            </IconButton>
+          </Tooltip>
+
+          <Tooltip title="Orientation Controls" placement="right">
+            <IconButton
+              disabled={controlsDisabled}
+              onClick={() => {
+                setDeckOpen(true);
+                setCompassOpen((v) => !v);
+              }}
+              sx={{
+                width: 42,
+                height: 42,
+                color: compassOpen ? "#0284c7" : "#64748b",
+                bgcolor: compassOpen ? "#e0f2fe" : "transparent",
+                "&:hover": { bgcolor: "#f1f5f9" },
+              }}
+            >
+              <TuneIcon sx={{ fontSize: 22 }} />
+            </IconButton>
+          </Tooltip>
+
+          {/* Updated Add Hotspot Icon (AddLocationIcon) */}
+          <Tooltip title="Hotspots Operations" placement="right">
+            <IconButton
+              disabled={controlsDisabled}
+              onClick={() => {
+                setDeckOpen(true);
+                if (!hotspotPlacementMode) enterHotspotPlacementMode();
+              }}
+              sx={{
+                width: 42,
+                height: 42,
+                color: hotspotPlacementMode ? "#0284c7" : "#64748b",
+                bgcolor: hotspotPlacementMode ? "#e0f2fe" : "transparent",
+                "&:hover": { bgcolor: "#f1f5f9" },
+              }}
+            >
+              <AddLocationIcon sx={{ fontSize: 22 }} />
+            </IconButton>
+          </Tooltip>
+        </Stack>
+
+        <Box sx={{ flexGrow: 1 }} />
+
+        {/* Active Target Count Badge */}
+        <Tooltip title={`${selectedModelIds.size} Models Selected`} placement="right">
+          <Chip
+            label={selectedModelIds.size}
+            size="small"
+            sx={{
+              fontWeight: 700,
+              fontSize: 11,
+              bgcolor: "#0284c7",
+              color: "#ffffff",
+              height: 26,
+              minWidth: 26,
+            }}
+          />
+        </Tooltip>
+      </Paper>
+
+      {/* ── EXPANDED DETAIL SIDEBAR DRAWER ── */}
+      <Drawer
+        anchor="left"
+        variant="persistent"
+        open={deckOpen}
+        sx={{
+          "& .MuiDrawer-paper": {
+            position: "absolute",
+            top: 16,
+            left: 86,
+            width: 380,
+            height: "calc(100% - 32px)",
+            borderRadius: 3,
+            boxSizing: "border-box",
+            border: "1px solid #e2e8f0",
+            bgcolor: "#ffffff",
+            color: "#0f172a",
+            boxShadow: "0 12px 36px rgba(15, 23, 42, 0.14)",
+            overflow: "hidden",
+            zIndex: 1250,
+          },
+        }}
+      >
+        <Box sx={{ height: "100%", display: "flex", flexDirection: "column", bgcolor: "#ffffff" }}>
+          {/* Header */}
+          <Box
+            sx={{
+              p: 3,
+              pb: 2.5,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              borderBottom: "1px solid #f1f5f9",
+            }}
+          >
+            <Box>
+              <Typography
+                variant="subtitle1"
+                sx={{
+                  fontWeight: 800,
+                  fontSize: 18,
+                  letterSpacing: "-0.01em",
+                  color: "#0f172a",
+                  lineHeight: 1.2,
+                }}
+              >
+                Tactical Viewport
+              </Typography>
+              <Typography
+                variant="caption"
+                sx={{
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: "#64748b",
+                  mt: 0.6,
+                  display: "block",
+                }}
+              >
+                Model Control & Hotspot Operations
+              </Typography>
+            </Box>
+
+            <Tooltip title="Collapse Side Panel">
+              <IconButton
+                size="small"
+                onClick={() => setDeckOpen(false)}
+                sx={{
+                  color: "#64748b",
+                  bgcolor: "#f8fafc",
+                  border: "1px solid #e2e8f0",
+                  "&:hover": { bgcolor: "#f1f5f9", color: "#0f172a" },
+                }}
+              >
+                <ChevronLeftIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
+
+          {/* Scrollable Content with Roomy Spacing */}
+          <Box
+            sx={{
+              flex: 1,
+              overflowY: "auto",
+              p: 3,
+              display: "flex",
+              flexDirection: "column",
+              gap: 3.5,
+              "&::-webkit-scrollbar": { width: 6 },
+              "&::-webkit-scrollbar-track": { bgcolor: "#f8fafc" },
+              "&::-webkit-scrollbar-thumb": { bgcolor: "#cbd5e1", borderRadius: 3 },
+            }}
+          >
+            {/* SECTION 1: Active Targets */}
+            <Stack spacing={1.5}>
+              <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <Typography
+                  variant="overline"
+                  sx={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: "0.08em",
+                    color: "#475569",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  01 / Active Targets
+                </Typography>
+                <Chip
+                  size="small"
+                  label={`${selectedModelIds.size} ACTIVE`}
+                  sx={{
+                    height: 22,
+                    fontSize: 10,
+                    fontWeight: 800,
+                    bgcolor: selectedModelIds.size ? "#e0f2fe" : "#f1f5f9",
+                    color: selectedModelIds.size ? "#0369a1" : "#64748b",
+                  }}
+                />
+              </Box>
+
+              <Paper
+                variant="outlined"
+                sx={{
+                  borderRadius: 2.5,
+                  borderColor: "#e2e8f0",
+                  overflow: "hidden",
+                }}
+              >
+                <List disablePadding>
+                  {loadedModelSummaries.map((m, index) => {
                     const isChecked = selectedModelIds.has(m.instanceId);
                     return (
-                      <label
+                      <ListItemButton
                         key={m.instanceId}
                         onClick={() => toggleModelCheckbox(m.instanceId)}
-                        className={`flex items-center justify-between text-xs font-semibold px-3 py-2 rounded-2xl border cursor-pointer transition-all ${
-                          isChecked
-                            ? "bg-sky-500/15 border-sky-500/50 text-sky-200"
-                            : "bg-slate-900/50 border-slate-800/80 text-slate-400 hover:border-slate-700 hover:text-slate-200"
-                        }`}
+                        sx={{
+                          py: 1.5,
+                          px: 2,
+                          borderBottom: index < loadedModelSummaries.length - 1 ? "1px solid #f1f5f9" : "none",
+                          bgcolor: isChecked ? "#f0f9ff" : "transparent",
+                          "&:hover": { bgcolor: isChecked ? "#e0f2fe" : "#f8fafc" },
+                        }}
                       >
-                        <div className="flex items-center gap-2.5">
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={() => {}} // handled by wrapper label
-                            className="w-3.5 h-3.5 rounded accent-sky-400 cursor-pointer"
+                        <Checkbox
+                          checked={isChecked}
+                          tabIndex={-1}
+                          disableRipple
+                          size="small"
+                          sx={{
+                            p: 0,
+                            mr: 1.75,
+                            color: "#cbd5e1",
+                            "&.Mui-checked": { color: "#0284c7" },
+                          }}
+                        />
+
+                        <ListItemText
+                          primary={m.label}
+                          secondary={`Heading: ${Math.round(m.heading)}°`}
+                          slotProps={{
+                            primary: {
+                              sx: {
+                                fontSize: 13,
+                                fontWeight: 700,
+                                color: isChecked ? "#0369a1" : "#1e293b",
+                              },
+                            },
+                            secondary: {
+                              sx: {
+                                fontSize: 11,
+                                fontWeight: 500,
+                                color: "#64748b",
+                                mt: 0.25,
+                              },
+                            },
+                          }}
+                        />
+
+                        {isChecked && (
+                          <Chip
+                            label="ACTIVE"
+                            size="small"
+                            sx={{
+                              height: 20,
+                              fontSize: 9,
+                              fontWeight: 800,
+                              color: "#0284c7",
+                              bgcolor: "#e0f2fe",
+                            }}
                           />
-                          <span className="truncate">{m.label}</span>
-                        </div>
-                        <span className="text-[10px] font-mono text-slate-500">{m.heading}°</span>
-                      </label>
+                        )}
+                      </ListItemButton>
                     );
                   })}
-                </div>
-              </div>
+                </List>
+              </Paper>
+            </Stack>
 
-              {/* Dual Action Dock */}
-              <div className="grid grid-cols-2 gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={placementMode || controlsDisabled ? undefined : enterPlacementMode}
+            <Divider sx={{ borderColor: "#f1f5f9" }} />
+
+            {/* SECTION 2: Model Controls */}
+            <Stack spacing={1.75}>
+              <Box>
+                <Typography
+                  variant="overline"
+                  sx={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: "0.08em",
+                    color: "#475569",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  02 / Model Controls
+                </Typography>
+                <Typography variant="body2" sx={{ fontSize: 12, color: "#64748b", mt: 0.3 }}>
+                  Position and orient active models on map
+                </Typography>
+              </Box>
+
+              <Stack direction="row" spacing={1.5}>
+                <Button
+                  fullWidth
+                  variant={placementMode ? "contained" : "outlined"}
                   disabled={controlsDisabled && !placementMode}
-                  className={`flex items-center justify-center gap-2 text-xs font-bold py-2.5 px-3 rounded-2xl border transition-all ${
-                    placementMode
-                      ? "bg-amber-500/20 border-amber-500/60 text-amber-300 hud-glow animate-pulse"
-                      : "bg-slate-900/80 border-slate-800 text-slate-200 hover:border-sky-500/40 hover:text-sky-300"
-                  }`}
+                  onClick={placementMode || controlsDisabled ? undefined : enterPlacementMode}
+                  startIcon={<OpenWithIcon />}
+                  sx={{
+                    py: 1.4,
+                    borderRadius: 2.5,
+                    textTransform: "none",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    borderColor: placementMode ? "#d97706" : "#cbd5e1",
+                    bgcolor: placementMode ? "#d97706" : "#ffffff",
+                    color: placementMode ? "#ffffff" : "#334155",
+                    "&:hover": {
+                      borderColor: placementMode ? "#b45309" : "#0284c7",
+                      bgcolor: placementMode ? "#b45309" : "#f0f9ff",
+                    },
+                  }}
                 >
-                  <span className="text-sm">{placementMode ? "📍" : "✦"}</span>
-                  <span>{placementMode ? "Relocating..." : "Move Object"}</span>
-                </button>
+                  {placementMode ? "Relocating" : "Move Object"}
+                </Button>
 
-                <button
-                  type="button"
-                  onClick={() => !controlsDisabled && setCompassOpen((v) => !v)}
+                <Button
+                  fullWidth
+                  variant={compassOpen ? "contained" : "outlined"}
                   disabled={controlsDisabled}
-                  className={`flex items-center justify-center gap-2 text-xs font-bold py-2.5 px-3 rounded-2xl border transition-all ${
-                    compassOpen
-                      ? "hud-chip-active hud-glow"
-                      : "bg-slate-900/80 border-slate-800 text-slate-200 hover:border-sky-500/40 hover:text-sky-300"
-                  }`}
-                >
-                  <span
-                    style={{ transform: `rotate(${compassDisplayDeg}deg)` }}
-                    className="inline-block transition-transform duration-300"
-                  >
-                    🧭
-                  </span>
-                  <span>Orientation</span>
-                </button>
-              </div>
-
-              {/* Dynamic Hotspot Creation Dock */}
-              <div className="flex flex-col gap-2 pt-1 border-t border-sky-500/15">
-                <button
-                  type="button"
-                  onClick={
-                    hotspotPlacementMode
-                      ? exitHotspotPlacementMode
-                      : placementMode || controlsDisabled
-                      ? undefined
-                      : enterHotspotPlacementMode
+                  onClick={() => !controlsDisabled && setCompassOpen((v) => !v)}
+                  startIcon={
+                    <ExploreIcon
+                      sx={{
+                        transform: `rotate(${compassDisplayDeg}deg)`,
+                        transition: "transform 0.2s ease",
+                      }}
+                    />
                   }
-                  disabled={controlsDisabled && !hotspotPlacementMode}
-                  className={`flex items-center justify-center gap-2 text-xs font-bold py-2.5 px-3 rounded-2xl border transition-all ${
-                    hotspotPlacementMode
-                      ? "bg-emerald-500/20 border-emerald-500/60 text-emerald-300 hud-glow animate-pulse"
-                      : "bg-slate-900/80 border-slate-800 text-slate-200 hover:border-emerald-500/40 hover:text-emerald-300"
-                  }`}
+                  sx={{
+                    py: 1.4,
+                    borderRadius: 2.5,
+                    textTransform: "none",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    borderColor: compassOpen ? "#0284c7" : "#cbd5e1",
+                    bgcolor: compassOpen ? "#0284c7" : "#ffffff",
+                    color: compassOpen ? "#ffffff" : "#334155",
+                    "&:hover": {
+                      borderColor: "#0284c7",
+                      bgcolor: compassOpen ? "#0369a1" : "#f0f9ff",
+                    },
+                  }}
                 >
-                  <span className="text-sm">{hotspotPlacementMode ? "📍" : "🔗"}</span>
-                  <span>{hotspotPlacementMode ? "Placing hotspot..." : "Add Hotspot"}</span>
-                </button>
+                  Orientation
+                </Button>
+              </Stack>
 
-                {hotspotPlacementMode && (
-                  <label className="flex items-center justify-between gap-2 text-xs font-semibold px-3 py-2 rounded-2xl border border-slate-800/80 bg-slate-900/50 text-slate-300">
-                    <span className="shrink-0">Links to</span>
-                    <select
+              {/* Slider / Preset Buttons */}
+              {compassOpen && !controlsDisabled && (
+                <Paper
+                  variant="outlined"
+                  sx={{
+                    p: 2.25,
+                    borderRadius: 2.5,
+                    borderColor: "#e2e8f0",
+                    bgcolor: "#f8fafc",
+                    mt: 0.5,
+                  }}
+                >
+                  <Box sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", mb: 1 }}>
+                    <Typography variant="caption" sx={{ fontSize: 11, fontWeight: 700, color: "#475569" }}>
+                      HEADING
+                    </Typography>
+                    <Typography variant="subtitle2" sx={{ fontSize: 16, fontWeight: 800, color: "#0284c7" }}>
+                      {Math.round(compassDisplayDeg)}°
+                    </Typography>
+                  </Box>
+
+                  <Slider
+                    value={compassDisplayDeg}
+                    min={0}
+                    max={359}
+                    onChange={(_, value) => setModelHeadingForSelection(value as number)}
+                    sx={{
+                      color: "#0284c7",
+                      py: 1.25,
+                      "& .MuiSlider-thumb": { width: 18, height: 18 },
+                    }}
+                  />
+
+                  <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                    {[0, 90, 180, 270].map((deg) => (
+                      <Button
+                        key={deg}
+                        size="small"
+                        fullWidth
+                        onClick={() => setModelHeadingForSelection(deg)}
+                        sx={{
+                          py: 0.6,
+                          borderRadius: 1.5,
+                          color: "#475569",
+                          fontSize: 10,
+                          fontWeight: 700,
+                          bgcolor: "#ffffff",
+                          border: "1px solid #cbd5e1",
+                          "&:hover": { bgcolor: "#e0f2fe", borderColor: "#38bdf8", color: "#0284c7" },
+                        }}
+                      >
+                        {deg === 0 ? "N 0°" : deg === 90 ? "E 90°" : deg === 180 ? "S 180°" : "W 270°"}
+                      </Button>
+                    ))}
+                  </Stack>
+                </Paper>
+              )}
+            </Stack>
+
+            <Divider sx={{ borderColor: "#f1f5f9" }} />
+
+            {/* SECTION 3: Hotspot Editor */}
+            <Stack spacing={1.75}>
+              <Box>
+                <Typography
+                  variant="overline"
+                  sx={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: "0.08em",
+                    color: "#475569",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  03 / Hotspot Editor
+                </Typography>
+                <Typography variant="body2" sx={{ fontSize: 12, color: "#64748b", mt: 0.3 }}>
+                  Add interactive hotspots linking to target models
+                </Typography>
+              </Box>
+
+              <Button
+                fullWidth
+                variant={hotspotPlacementMode ? "contained" : "outlined"}
+                disabled={controlsDisabled && !hotspotPlacementMode}
+                onClick={
+                  hotspotPlacementMode
+                    ? exitHotspotPlacementMode
+                    : placementMode || controlsDisabled
+                    ? undefined
+                    : enterHotspotPlacementMode
+                }
+                startIcon={<AddLocationIcon />}
+                sx={{
+                  py: 1.4,
+                  borderRadius: 2.5,
+                  textTransform: "none",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  color: hotspotPlacementMode ? "#ffffff" : "#0284c7",
+                  bgcolor: hotspotPlacementMode ? "#0284c7" : "#ffffff",
+                  borderColor: hotspotPlacementMode ? "#0284c7" : "#38bdf8",
+                  "&:hover": {
+                    bgcolor: hotspotPlacementMode ? "#0369a1" : "#f0f9ff",
+                    borderColor: "#0284c7",
+                  },
+                }}
+              >
+                {hotspotPlacementMode ? "Click Model to Place Hotspot" : "Add Hotspot"}
+              </Button>
+
+              {hotspotPlacementMode && (
+                <Paper variant="outlined" sx={{ p: 2, borderRadius: 2.5, borderColor: "#e2e8f0", bgcolor: "#f8fafc" }}>
+                  <Typography variant="caption" sx={{ fontSize: 11, fontWeight: 700, color: "#475569", mb: 1, display: "block" }}>
+                    LINKS TO MODEL
+                  </Typography>
+
+                  <FormControl fullWidth size="small">
+                    <Select
                       value={hotspotNextModelId}
                       onChange={(e) => {
                         const next = e.target.value;
                         setHotspotNextModelId(next);
-                        // Re-target the most recently created hotspot live so
-                        // changing the dropdown after placing a hotspot updates
-                        // that hotspot (not just the next one).
                         if (lastCreatedHotspotIdRef.current) {
-                          hotspotManagerRef.current.updateHotspotLink(
-                            lastCreatedHotspotIdRef.current,
-                            next
-                          );
-                          rendererRef.current?.requestRedraw();
+                          updateCreatedHotspotLink(lastCreatedHotspotIdRef.current, next);
                         }
                       }}
-                      className="flex-1 min-w-0 bg-transparent text-slate-100 font-bold outline-none cursor-pointer text-right select-text"
-                    >
-                      {Object.values(MODELS).map((model) => (
-                        <option key={model.id} value={model.id} className="bg-slate-900 text-slate-100">
-                          {model.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                )}
-
-                {/* Edit Hotspot Link Dock */}
-                <button
-                  type="button"
-                  onClick={
-                    hotspotEditMode
-                      ? exitHotspotEditMode
-                      : placementMode || controlsDisabled
-                      ? undefined
-                      : enterHotspotEditMode
-                  }
-                  disabled={controlsDisabled && !hotspotEditMode}
-                  className={`flex items-center justify-center gap-2 text-xs font-bold py-2.5 px-3 rounded-2xl border transition-all ${
-                    hotspotEditMode
-                      ? "bg-violet-500/20 border-violet-500/60 text-violet-300 hud-glow animate-pulse"
-                      : "bg-slate-900/80 border-slate-800 text-slate-200 hover:border-violet-500/40 hover:text-violet-300"
-                  }`}
-                >
-                  <span className="text-sm">{hotspotEditMode ? "🎯" : "✏️"}</span>
-                  <span>{hotspotEditMode ? "Select hotspot..." : "Edit Hotspot Link"}</span>
-                </button>
-
-                {hotspotEditMode && editingHotspotId && (
-                  <label className="flex items-center justify-between gap-2 text-xs font-semibold px-3 py-2 rounded-2xl border border-slate-800/80 bg-slate-900/50 text-slate-300">
-                    <span className="shrink-0">Links to</span>
-                    <select
-                      value={editingHotspotLink}
-                      onChange={(e) => {
-                        const next = e.target.value;
-                        setEditingHotspotLink(next);
-                        hotspotManagerRef.current.updateHotspotLink(editingHotspotId, next);
-                        rendererRef.current?.requestRedraw();
+                      sx={{
+                        borderRadius: 1.5,
+                        bgcolor: "#ffffff",
+                        fontSize: 12,
+                        fontWeight: 600,
                       }}
-                      className="flex-1 min-w-0 bg-transparent text-slate-100 font-bold outline-none cursor-pointer text-right select-text"
                     >
                       {Object.values(MODELS).map((model) => (
-                        <option key={model.id} value={model.id} className="bg-slate-900 text-slate-100">
+                        <MenuItem key={model.id} value={model.id}>
                           {model.label}
-                        </option>
+                        </MenuItem>
                       ))}
-                    </select>
-                  </label>
-                )}
-              </div>
-
-              {/* Tactical Compass Dial with Cardinal Points & Slider */}
-              {compassOpen && !controlsDisabled && (
-                <div className="flex flex-col items-center gap-3 pt-3 border-t border-sky-500/15">
-                  <div className="compass-dial-wrap">
-                    <div className="compass-dial-ring" />
-                    <div
-                      className="compass-needle"
-                      style={{ transform: `translate(-50%, -100%) rotate(${compassDisplayDeg}deg)` }}
-                    />
-                    <div className="compass-hub" />
-
-                    {COMPASS_DIAL.map((cell) => {
-                      const isActive = compassDisplayDeg === cell.deg;
-                      return (
-                        <button
-                          key={cell.label}
-                          type="button"
-                          className={`compass-dial-btn ${isActive ? "is-active" : ""}`}
-                          style={{ left: cell.x, top: cell.y }}
-                          onClick={() => setModelHeadingForSelection(cell.deg)}
-                          title={`${cell.label} — ${cell.deg}°`}
-                        >
-                          {cell.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <div className="w-full flex items-center gap-3 px-1">
-                    <input
-                      type="range"
-                      min={0}
-                      max={359}
-                      value={compassDisplayDeg}
-                      onChange={(e) => setModelHeadingForSelection(Number(e.target.value))}
-                      className="hud-slider flex-1 h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-sky-400"
-                    />
-                    <span className="text-xs font-mono font-bold text-sky-400 min-w-[32px] text-right">
-                      {compassDisplayDeg}°
-                    </span>
-                  </div>
-                </div>
+                    </Select>
+                  </FormControl>
+                </Paper>
               )}
-            </>
-          )}
-        </div>
-      </div>
 
-      {/* ── TOP-RIGHT: TACTICAL CAMERA STACK ── */}
-      <div className="absolute top-5 right-5 z-20">
-        <div className="hud-glass rounded-2xl p-1.5 flex flex-col gap-1">
-          <button
-            type="button"
-            onClick={() => rotateMap(-45)}
-            title="Rotate Left 45°"
-            className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-900/50 hover:bg-sky-500/20 text-sky-400 border border-slate-800 hover:border-sky-500/40 transition-all"
+              {/* Created Hotspots List */}
+              <Stack spacing={1.25} sx={{ mt: 0.5 }}>
+                <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <Typography variant="caption" sx={{ fontSize: 11, fontWeight: 700, color: "#475569" }}>
+                    CREATED HOTSPOTS
+                  </Typography>
+                  <Chip
+                    label={createdHotspots.length}
+                    size="small"
+                    sx={{
+                      height: 20,
+                      fontSize: 10,
+                      fontWeight: 800,
+                      bgcolor: createdHotspots.length ? "#e0f2fe" : "#f1f5f9",
+                      color: createdHotspots.length ? "#0369a1" : "#64748b",
+                    }}
+                  />
+                </Box>
+
+                <Paper variant="outlined" sx={{ borderRadius: 2.5, borderColor: "#e2e8f0", overflow: "hidden" }}>
+                  {createdHotspots.length === 0 ? (
+                    <Box sx={{ p: 3, textAlign: "center" }}>
+                      <Typography variant="body2" sx={{ fontSize: 12, color: "#94a3b8" }}>
+                        No hotspots added yet. Click &quot;Add Hotspot&quot; above to place one.
+                      </Typography>
+                    </Box>
+                  ) : (
+                    <List disablePadding>
+                      {createdHotspots.map((hotspot, index) => {
+                        const isEditing = editingHotspotId === hotspot.id;
+
+                        return (
+                          <Box
+                            key={hotspot.id}
+                            sx={{
+                              p: 1.75,
+                              borderBottom: index < createdHotspots.length - 1 ? "1px solid #f1f5f9" : "none",
+                              bgcolor: isEditing ? "#f0f9ff" : "transparent",
+                            }}
+                          >
+                            <Box sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 1 }}>
+                              <Box sx={{ minWidth: 0, flex: 1 }}>
+                                <Box sx={{ display: "flex", alignItems: "center", gap: 0.85 }}>
+                                  <RadioButtonCheckedIcon sx={{ fontSize: 15, color: "#0284c7" }} />
+                                  <Typography
+                                    variant="body2"
+                                    sx={{
+                                      fontSize: 12,
+                                      fontWeight: 700,
+                                      color: "#1e293b",
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                      whiteSpace: "nowrap",
+                                    }}
+                                  >
+                                    {hotspot.id}
+                                  </Typography>
+                                </Box>
+
+                                <Typography
+                                  variant="caption"
+                                  sx={{
+                                    fontSize: 11,
+                                    color: "#64748b",
+                                    display: "block",
+                                    mt: 0.4,
+                                    pl: 2.85,
+                                  }}
+                                >
+                                  {getHotspotSourceLabel(hotspot)} → <span style={{ color: "#0284c7", fontWeight: 700 }}>{getHotspotTargetLabel(hotspot)}</span>
+                                </Typography>
+                              </Box>
+
+                              <Stack direction="row" spacing={0.75}>
+                                <Tooltip title="Edit Destination">
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => beginEditHotspot(hotspot)}
+                                    sx={{
+                                      color: isEditing ? "#0284c7" : "#64748b",
+                                      bgcolor: isEditing ? "#e0f2fe" : "#f8fafc",
+                                      border: "1px solid #e2e8f0",
+                                      "&:hover": { bgcolor: "#f1f5f9" },
+                                    }}
+                                  >
+                                    <EditIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+
+                                <Tooltip title="Delete Hotspot">
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => deleteCreatedHotspot(hotspot.id)}
+                                    sx={{
+                                      color: "#ef4444",
+                                      bgcolor: "#fef2f2",
+                                      border: "1px solid #fecaca",
+                                      "&:hover": { bgcolor: "#fee2e2" },
+                                    }}
+                                  >
+                                    <DeleteIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              </Stack>
+                            </Box>
+
+                            {isEditing && (
+                              <Box sx={{ mt: 1.5, pl: 2.85, display: "flex", gap: 1 }}>
+                                <FormControl fullWidth size="small">
+                                  <Select
+                                    value={hotspot.nextModelId}
+                                    onChange={(e) => updateCreatedHotspotLink(hotspot.id, e.target.value)}
+                                    sx={{ borderRadius: 1.5, fontSize: 11, fontWeight: 600, bgcolor: "#ffffff" }}
+                                  >
+                                    {Object.values(MODELS).map((model) => (
+                                      <MenuItem key={model.id} value={model.id}>
+                                        {model.label}
+                                      </MenuItem>
+                                    ))}
+                                  </Select>
+                                </FormControl>
+
+                                <IconButton size="small" onClick={exitHotspotEditMode} sx={{ border: "1px solid #cbd5e1" }}>
+                                  <CloseIcon fontSize="small" />
+                                </IconButton>
+                              </Box>
+                            )}
+                          </Box>
+                        );
+                      })}
+                    </List>
+                  )}
+                </Paper>
+              </Stack>
+
+              <Paper
+                variant="outlined"
+                sx={{
+                  p: 1.75,
+                  borderRadius: 2.5,
+                  borderColor: "#bae6fd",
+                  bgcolor: "#f0f9ff",
+                  display: "flex",
+                  gap: 1.5,
+                  alignItems: "flex-start",
+                }}
+              >
+                <LinkIcon sx={{ fontSize: 18, color: "#0284c7", mt: 0.2 }} />
+                <Typography variant="caption" sx={{ fontSize: 11, color: "#0369a1", lineHeight: 1.5 }}>
+                  Hotspots attach directly to model surfaces. Select destinations from the editor list above.
+                </Typography>
+              </Paper>
+            </Stack>
+          </Box>
+
+          {/* Footer */}
+          <Box
+            sx={{
+              px: 3,
+              py: 2,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              borderTop: "1px solid #f1f5f9",
+              bgcolor: "#f8fafc",
+            }}
           >
-            ⟲
-          </button>
-          <button
-            type="button"
-            onClick={() => rotateMap(45)}
-            title="Rotate Right 45°"
-            className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-900/50 hover:bg-sky-500/20 text-sky-400 border border-slate-800 hover:border-sky-500/40 transition-all"
-          >
-            ⟳
-          </button>
-          <div className="h-px bg-sky-500/15 my-0.5" />
-          <button
-            type="button"
-            onClick={() => tiltMap(15)}
-            title="Tilt Angle Up"
-            className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-900/50 hover:bg-sky-500/20 text-sky-400 border border-slate-800 hover:border-sky-500/40 transition-all text-xs"
-          >
-            ▲
-          </button>
-          <button
-            type="button"
-            onClick={() => tiltMap(-15)}
-            title="Tilt Angle Down"
-            className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-900/50 hover:bg-sky-500/20 text-sky-400 border border-slate-800 hover:border-sky-500/40 transition-all text-xs"
-          >
-            ▼
-          </button>
-        </div>
-      </div>
+            <Typography variant="caption" sx={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase" }}>
+              3D Spatial Renderer
+            </Typography>
+            <Chip label="ONLINE" size="small" sx={{ height: 20, fontSize: 9, fontWeight: 800, bgcolor: "#dcfce7", color: "#15803d" }} />
+          </Box>
+        </Box>
+      </Drawer>
+
+      {/* ── TOP-RIGHT: CAMERA & MAP CONTROLS ── */}
+      <Paper
+        elevation={3}
+        sx={{
+          position: "absolute",
+          top: 16,
+          right: 16,
+          zIndex: 20,
+          p: 0.75,
+          borderRadius: 2.5,
+          bgcolor: "#ffffff",
+          border: "1px solid #e2e8f0",
+          display: "flex",
+          flexDirection: "column",
+          gap: 0.75,
+        }}
+      >
+        {[
+          { label: "Rotate Left", onClick: () => rotateMap(-45), text: "⟲" },
+          { label: "Rotate Right", onClick: () => rotateMap(45), text: "⟳" },
+          { label: "Tilt Up", onClick: () => tiltMap(15), text: "▲" },
+          { label: "Tilt Down", onClick: () => tiltMap(-15), text: "▼" },
+        ].map((item, index) => (
+          <Tooltip title={item.label} key={item.label} placement="left">
+            <IconButton
+              onClick={item.onClick}
+              size="small"
+              sx={{
+                width: 36,
+                height: 36,
+                borderRadius: 2,
+                color: "#0284c7",
+                bgcolor: index < 2 ? "#f0f9ff" : "#f8fafc",
+                border: "1px solid #e2e8f0",
+                "&:hover": { bgcolor: "#e0f2fe", borderColor: "#38bdf8" },
+              }}
+            >
+              <Typography sx={{ fontSize: index < 2 ? 18 : 12, fontWeight: 800, lineHeight: 1 }}>{item.text}</Typography>
+            </IconButton>
+          </Tooltip>
+        ))}
+      </Paper>
 
       {/* ── BOTTOM-RIGHT: ORBIT GESTURE PILL ── */}
-      <div className="absolute bottom-6 right-5 z-20">
-        <button
-          type="button"
-          onPointerDown={startDragRotate}
-          onPointerMove={moveDragRotate}
-          onPointerUp={endDragRotate}
-          onPointerCancel={endDragRotate}
-          onLostPointerCapture={endDragRotate}
-          className="hud-glass px-5 py-3 rounded-full text-xs font-bold text-slate-200 hover:text-sky-300 flex items-center gap-2.5 cursor-grab active:cursor-grabbing hover:border-sky-500/40 transition-all shadow-2xl"
-        >
-          <span className="text-sky-400 text-sm animate-pulse">↔</span> Drag to Orbit 360°
-        </button>
-      </div>
+      <Button
+        onPointerDown={startDragRotate}
+        onPointerMove={moveDragRotate}
+        onPointerUp={endDragRotate}
+        onPointerCancel={endDragRotate}
+        onLostPointerCapture={endDragRotate}
+        startIcon={<ExploreIcon sx={{ color: "#0284c7", fontSize: 18 }} />}
+        sx={{
+          position: "absolute",
+          bottom: 20,
+          right: 16,
+          zIndex: 20,
+          px: 2.5,
+          py: 1.2,
+          minHeight: 42,
+          borderRadius: 99,
+          textTransform: "none",
+          fontSize: 12,
+          fontWeight: 700,
+          color: "#334155",
+          bgcolor: "#ffffff",
+          border: "1px solid #cbd5e1",
+          boxShadow: "0 8px 24px rgba(15, 23, 42, 0.12)",
+          cursor: "grab",
+          "&:hover": { bgcolor: "#f8fafc", color: "#0284c7" },
+          "&:active": { cursor: "grabbing" },
+        }}
+      >
+        Drag to Orbit 360°
+      </Button>
 
-      {/* ── PROPERTY METRICS POPUP ── */}
+      {/* ── PROPERTY POPUP ── */}
       {propertyPopup && (
-        <div
-          className="hud-glass absolute z-30 w-64 rounded-3xl p-4 pointer-events-none transition-all duration-200"
+        <Paper
+          elevation={4}
+          sx={{
+            position: "absolute",
+            zIndex: 30,
+            width: 260,
+            borderRadius: 3,
+            p: 2,
+            bgcolor: "#ffffff",
+            border: "1px solid #e2e8f0",
+            pointerEvents: "none",
+          }}
           style={{
             left: Math.min(propertyPopup.x + 16, window.innerWidth - 280),
             top: Math.min(propertyPopup.y + 16, window.innerHeight - 200),
           }}
         >
-          <div className="text-[9px] font-black tracking-widest text-sky-400 uppercase mb-1">
+          <Typography variant="overline" sx={{ fontSize: 10, fontWeight: 800, color: "#0284c7", letterSpacing: "0.08em" }}>
             {propertyPopup.meshName}
-          </div>
-          <div className="text-base font-extrabold text-slate-100 mb-2">
+          </Typography>
+          <Typography variant="subtitle1" sx={{ fontSize: 15, fontWeight: 700, color: "#0f172a", mb: 1 }}>
             {propertyPopup.details.name}
-          </div>
-          <div className="space-y-1.5 text-xs text-slate-300">
-            <div className="flex justify-between">
-              <span className="text-slate-400">Class</span>
-              <span className="font-semibold text-slate-200">{propertyPopup.details.bhk}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-slate-400">Footprint</span>
-              <span className="font-semibold text-slate-200">{propertyPopup.details.area} sq ft</span>
-            </div>
-            <div className="mt-3 p-2.5 rounded-2xl bg-sky-500/10 border border-sky-500/20 flex justify-between items-center">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Valuation</span>
-              <span className="text-sky-400 font-black text-sm">{propertyPopup.details.price}</span>
-            </div>
-          </div>
-        </div>
+          </Typography>
+          <Stack spacing={0.5}>
+            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+              <Typography variant="caption" sx={{ color: "#64748b" }}>Class</Typography>
+              <Typography variant="caption" sx={{ fontWeight: 700 }}>{propertyPopup.details.bhk}</Typography>
+            </Box>
+            <Box sx={{ display: "flex", justifyContent: "space-between" }}>
+              <Typography variant="caption" sx={{ color: "#64748b" }}>Footprint</Typography>
+              <Typography variant="caption" sx={{ fontWeight: 700 }}>{propertyPopup.details.area} sq ft</Typography>
+            </Box>
+            <Paper variant="outlined" sx={{ mt: 1, p: 1, borderRadius: 1.5, bgcolor: "#f0f9ff", borderColor: "#bae6fd", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <Typography variant="caption" sx={{ fontWeight: 700, color: "#0369a1" }}>Valuation</Typography>
+              <Typography variant="subtitle2" sx={{ fontWeight: 800, color: "#0284c7" }}>{propertyPopup.details.price}</Typography>
+            </Paper>
+          </Stack>
+        </Paper>
       )}
 
       {/* ── THREE.JS Google Map Container ── */}
-      <div
+      <Box
         ref={mapDiv}
         onClick={handleScenePick}
-        className={`w-full h-full ${placementMode ? "cursor-crosshair" : "cursor-default"}`}
+        sx={{ width: "100%", height: "100%", cursor: placementMode || hotspotPlacementMode ? "crosshair" : "default" }}
       />
 
-      {/* Secondary Overlay Canvas */}
-      {viewerModel && (
-        <ModelViewerOverlay
-          model={viewerModel}
-          onBack={() => setViewerModel(null)}
-        />
-      )}
-    </div>
+      {viewerModel && <ModelViewerOverlay model={viewerModel} onBack={() => setViewerModel(null)} />}
+    </Box>
   );
 }
