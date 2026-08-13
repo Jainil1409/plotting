@@ -265,13 +265,9 @@ export default function GoogleMap3D() {
         heading: m.config.heading,
       }));
       setLoadedModelSummaries(summaries);
-      const defaultSelection = new Set<string>(
-        summaries.some((s) => s.instanceId === activeModelInstanceIdRef.current)
-          ? [activeModelInstanceIdRef.current]
-          : summaries.slice(0, 1).map((s) => s.instanceId)
-      );
-      setSelectedModelIds(defaultSelection);
-      selectedModelIdsRef.current = defaultSelection;
+    const defaultSelection = new Set<string>();
+setSelectedModelIds(defaultSelection);
+selectedModelIdsRef.current = defaultSelection;
 
       interactionManagerRef.current?.setMeshes(modelManager.getAllMeshes());
       renderer.requestRedraw();
