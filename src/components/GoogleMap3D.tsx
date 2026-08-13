@@ -63,6 +63,10 @@ import TuneIcon from "@mui/icons-material/Tune";
 
 const GOOGLE_MAPS_API_KEY = "AIzaSyBCswT9ODeUU9ByGUjbRg1KzV-nUF3BFkU"; // demo key
 
+// Below this zoom level, model/hotspot interactions are disabled and a
+// location marker is shown instead.
+const MIN_INTERACTION_ZOOM = 15;
+
 const defaultModelConfig = getModelConfig(DEFAULT_MODEL_INSTANCE_ID);
 if (!defaultModelConfig) {
   throw new Error(`Missing default model instance: ${DEFAULT_MODEL_INSTANCE_ID}`);
@@ -159,6 +163,10 @@ export default function GoogleMap3D() {
 
   const [viewerModel, setViewerModel] = useState<ModelDefinition | null>(null);
 
+  const [mapZoom, setMapZoom] = useState(18);
+  const mapZoomRef = useRef(18);
+  const modelMarkersRef = useRef<google.maps.Marker[]>([]);
+
   const dragStateRef = useRef<{ pointerId: number | null; startX: number; startHeading: number; dragging: boolean }>({
     pointerId: null,
     startX: 0,
@@ -223,6 +231,14 @@ export default function GoogleMap3D() {
       });
       mapRef.current = map;
 
+      map.addListener("zoom_changed", () => {
+        const zoom = map.getZoom() ?? 18;
+        mapZoomRef.current = zoom;
+        setMapZoom(zoom);
+        const showMarkers = zoom < MIN_INTERACTION_ZOOM;
+        modelMarkersRef.current.forEach((marker) => marker.setVisible(showMarkers));
+      });
+
       const renderer = new GoogleMapsThreeRenderer();
       renderer.setAnchor(DEFAULT_ANCHOR);
       renderer.setOnDraw(() => {
@@ -249,6 +265,24 @@ export default function GoogleMap3D() {
         modelManager.setAnchor(loaded, config.anchor, sceneAnchor);
         modelManager.addModel(renderer.scene, loaded);
         loadedModels.push(loaded);
+
+        // Create a marker to indicate the model's location when zoomed out.
+        const marker = new g.maps.Marker({
+          position: { lat: config.anchor.lat, lng: config.anchor.lng },
+          map,
+          visible: false,
+          title: config.label,
+          icon: {
+            url:
+              "data:image/svg+xml;charset=UTF-8," +
+              encodeURIComponent(
+                `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="#0284c7"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>`
+              ),
+            scaledSize: new g.maps.Size(32, 32),
+            anchor: new g.maps.Point(16, 32),
+          },
+        });
+        modelMarkersRef.current.push(marker);
 
         // Log the loaded model's structural details to the console as soon
         // as it loads on the map.
@@ -298,6 +332,9 @@ selectedModelIdsRef.current = defaultSelection;
       modelManager.disposeAll();
       currentModelRef.current = null;
       hotspotManager.dispose();
+
+      modelMarkersRef.current.forEach((marker) => marker.setMap(null));
+      modelMarkersRef.current = [];
 
       rendererRef.current?.dispose();
       rendererRef.current = null;
@@ -498,6 +535,8 @@ selectedModelIdsRef.current = defaultSelection;
 
   const handleScenePick = (event: ReactMouseEvent<HTMLDivElement>) => {
     if (placementModeRef.current) return;
+    // When zoomed out too much, disable hotspot/mesh interactions.
+    if (mapZoomRef.current < MIN_INTERACTION_ZOOM) return;
     const renderer = rendererRef.current;
     const mapElement = mapDiv.current;
     if (!renderer || !mapElement) return;
