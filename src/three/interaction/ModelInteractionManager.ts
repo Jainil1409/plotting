@@ -100,8 +100,14 @@ export class ModelInteractionManager {
     const modelInstanceId = picked.userData.modelInstanceId as string | undefined;
     const modelId = picked.userData.modelId as string | undefined;
 
-    const details = modelInstanceId
-      ? this.propertyDetails[modelInstanceId]?.[meshName]
+    // Show the popup for any mesh of a model that has property details, so
+    // clicking any part of the model opens the property popup.
+    const modelProperties = modelInstanceId
+      ? this.propertyDetails[modelInstanceId]
+      : undefined;
+
+    const details = modelProperties
+      ? Object.values(modelProperties)[0]
       : undefined;
 
     if (!details) {
