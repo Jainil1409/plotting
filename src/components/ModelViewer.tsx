@@ -13,6 +13,20 @@ import HotspotEditorPanel from "./HotspotEditorPanel";
 import { HotspotConfig } from "../types/hotspot";
 import { getViewerHotspotsForModel } from "../data/viewerHotspots";
 
+// Material UI Components
+import Box from "@mui/material/Box";
+import Button from "@mui/material/Button";
+import Typography from "@mui/material/Typography";
+import CircularProgress from "@mui/material/CircularProgress";
+import Alert from "@mui/material/Alert";
+import Stack from "@mui/material/Stack";
+import Paper from "@mui/material/Paper";
+
+// Material UI Icons
+import ArrowBackIcon from "@mui/icons-material/ArrowBack";
+import EditLocationAltIcon from "@mui/icons-material/EditLocationAlt";
+import CheckCircleIcon from "@mui/icons-material/CheckCircle";
+
 interface ModelViewerProps {
   modelUrl: string;
   onBack: () => void;
@@ -24,10 +38,6 @@ export default function ModelViewer({
   onBack,
   initialHotspots,
 }: ModelViewerProps) {
-  // Resolve the hotspot list from the actual model URL every time the
-  // model changes. This way clicking an entry hotspot on the map that
-  // opens the apartment loads the apartment's own hotspot camera
-  // presets (hotspots.json), not the house's.
   const resolvedHotspots = initialHotspots ?? getViewerHotspotsForModel(modelUrl);
   const mountRef = useRef<HTMLDivElement>(null);
   const hotspotManagerRef = useRef<HotspotManager | null>(null);
@@ -39,9 +49,6 @@ export default function ModelViewer({
   const [hotspots, setHotspots] = useState<HotspotConfig[]>(resolvedHotspots);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  // Refs that stay in sync with state so the pointerdown listener added in
-  // useEffect can always read the CURRENT value (the closure would otherwise
-  // capture a stale value forever).
   const editModeRef = useRef(false);
   const selectedIdRef = useRef<string | null>(null);
 
@@ -53,12 +60,6 @@ export default function ModelViewer({
     selectedIdRef.current = selectedId;
   }, [selectedId]);
 
-  // Turning OFF edit mode (closing the sidebar OR toggling "Edit hotspots"
-  // off) should also drop the current selection — otherwise the selected
-  // marker stays highlighted yellow on the model after the editor closes.
-  // Done explicitly here in the handlers (not via a reactive effect on
-  // editMode) so it can never fire while the user is actively selecting
-  // hotspots inside the editor.
   const exitEditMode = () => {
     setEditMode(false);
     setSelectedId(null);
@@ -100,16 +101,8 @@ export default function ModelViewer({
         setLoading(false);
 
         if (resolvedHotspots.length > 0) {
-          // Opening a model from a map hotspot should land the camera
-          // directly on the FIRST hotspot's saved angle, so the user
-          // immediately sees the unit/location they clicked instead of
-          // a generic overview. Plain instant placement — the cinematic
-          // tween is reserved for clicking hotspots inside the viewer.
           cameraController.setCameraPreset(resolvedHotspots[0]);
         } else {
-          // No registered hotspot presets for this model — reproduce the
-          // original auto-framing: position the camera to the living
-          // room / main room area from front eye-level.
           cameraController.frameModel(size, center);
         }
       } catch (err) {
@@ -123,14 +116,8 @@ export default function ModelViewer({
     const handlePointerDown = (event: PointerEvent) => {
       if (!hotspotManager || !cameraController) return;
 
-      // If the user grabs the camera while a hotspot transition is still
-      // tweening, gsap and OrbitControls fight over camera.position every
-      // frame — that fight is what causes the glitching/jitter. Cancel any
-      // in-flight transition immediately so the user's drag takes over.
       cameraController.cancelTransition();
 
-      // Use the ref so we always read the CURRENT edit-mode value instead of
-      // the stale one captured when the effect first ran.
       const result = hotspotManager.handleClick(
         event,
         viewer.renderer,
@@ -142,12 +129,6 @@ export default function ModelViewer({
         if (result.hotspot) {
           cameraController.goToHotspot(result.hotspot);
         }
-        // This handler runs in the CAPTURE phase (listener added with
-        // capture:true), so stopping propagation here prevents OrbitControls
-        // — which listens on the same canvas in the bubble phase — from ALSO
-        // starting a drag on this pointerdown. Without this, both gsap and
-        // OrbitControls write camera.position during the transition and the
-        // camera glitches/jitters while rotating.
         event.stopImmediatePropagation();
         return;
       }
@@ -163,31 +144,16 @@ export default function ModelViewer({
       }
     };
 
-    // If the user zooms (mouse wheel / trackpad) while a hotspot camera
-    // transition is still tweening, gsap writes camera.position every frame
-    // while OrbitControls' wheel handler ALSO moves the camera. That fight
-    // is what causes the first-zoom flicker. Cancelling in the CAPTURE phase
-    // (before OrbitControls' bubble-phase wheel handler runs) lets the user's
-    // zoom take over cleanly instead of jittering against the running tween.
     const handleWheel = () => {
       cameraController.cancelTransition();
     };
     viewer.renderer.domElement.addEventListener("wheel", handleWheel, true);
-
-    // Capture phase so hotspot handling runs BEFORE OrbitControls. When a
-    // hotspot is clicked, stopImmediatePropagation() prevents OrbitControls
-    // from also starting a drag on the same pointerdown (the two fighting is
-    // what caused the rotation glitch). For normal drags (no hotspot hit) the
-    // event still reaches OrbitControls normally.
     viewer.renderer.domElement.addEventListener("pointerdown", handlePointerDown, true);
 
     const animate = () => {
       animationId = requestAnimationFrame(animate);
       cameraController.update();
 
-      // Keep every hotspot marker billboarded toward the camera and lifted
-      // off its surface normal — this is what keeps them flicker-free flat
-      // 2D circles during a 360° rotation.
       hotspotManager?.updateMarkers(cameraController.camera);
 
       viewer.render(cameraController.camera);
@@ -244,96 +210,135 @@ export default function ModelViewer({
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 50, background: "#0b1120" }}>
-      <button
-        type="button"
+    <Box
+      sx={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 1400,
+        bgcolor: "#090d16",
+        fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+      }}
+    >
+      {/* ── TOP-LEFT: BACK BUTTON ── */}
+      <Button
+        variant="outlined"
+        startIcon={<ArrowBackIcon fontSize="small" />}
         onClick={onBack}
-        style={{
+        sx={{
           position: "absolute",
-          top: 16,
-          left: 16,
+          top: 20,
+          left: 20,
           zIndex: 60,
-          padding: "9px 18px",
-          borderRadius: 999,
-          border: "1px solid rgba(255,255,255,0.08)",
-          background: "rgba(10,18,35,0.85)",
-          color: "#e2e8f0",
-          fontSize: 12,
+          px: 2.25,
+          py: 1,
+          borderRadius: 99,
+          textTransform: "none",
+          fontSize: 12.5,
           fontWeight: 700,
-          letterSpacing: 0.4,
-          cursor: "pointer",
+          color: "#f8fafc",
+          bgcolor: "rgba(15, 23, 42, 0.75)",
+          borderColor: "rgba(255, 255, 255, 0.15)",
           backdropFilter: "blur(12px)",
-          boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+          boxShadow: "0 8px 32px rgba(0, 0, 0, 0.36)",
+          "&:hover": {
+            bgcolor: "rgba(15, 23, 42, 0.9)",
+            borderColor: "rgba(255, 255, 255, 0.3)",
+          },
         }}
       >
-        ← Back to house
-      </button>
+        Back to Map
+      </Button>
 
-      <button
-        type="button"
+      {/* ── TOP-RIGHT: EDIT HOTSPOTS TOGGLE ── */}
+      <Button
+        variant={editMode ? "contained" : "outlined"}
+        startIcon={editMode ? <CheckCircleIcon fontSize="small" /> : <EditLocationAltIcon fontSize="small" />}
         onClick={() => (editMode ? exitEditMode() : setEditMode(true))}
-        style={{
+        sx={{
           position: "absolute",
-          top: 16,
-          right: 16,
+          top: 20,
+          right: 20,
           zIndex: 60,
-          padding: "9px 18px",
-          borderRadius: 999,
-          border: "1px solid rgba(255,255,255,0.08)",
-          background: editMode ? "rgba(0,170,255,0.85)" : "rgba(10,18,35,0.85)",
-          color: "#e2e8f0",
-          fontSize: 12,
+          px: 2.25,
+          py: 1,
+          borderRadius: 99,
+          textTransform: "none",
+          fontSize: 12.5,
           fontWeight: 700,
-          letterSpacing: 0.4,
-          cursor: "pointer",
+          color: editMode ? "#ffffff" : "#f8fafc",
+          bgcolor: editMode ? "#0284c7" : "rgba(15, 23, 42, 0.75)",
+          borderColor: editMode ? "#0284c7" : "rgba(255, 255, 255, 0.15)",
           backdropFilter: "blur(12px)",
-          boxShadow: "0 8px 32px rgba(0,0,0,0.4)",
+          boxShadow: "0 8px 32px rgba(0, 0, 0, 0.36)",
+          "&:hover": {
+            bgcolor: editMode ? "#0369a1" : "rgba(15, 23, 42, 0.9)",
+            borderColor: editMode ? "#0369a1" : "rgba(255, 255, 255, 0.3)",
+          },
         }}
       >
         {editMode ? "Editing hotspots: ON" : "Edit hotspots"}
-      </button>
+      </Button>
 
+      {/* ── CENTER: LOADING STATE ── */}
       {loading && !error && (
-        <div
-          style={{
+        <Paper
+          elevation={4}
+          sx={{
             position: "absolute",
-            top: 16,
+            top: 24,
             left: "50%",
             transform: "translateX(-50%)",
             zIndex: 60,
-            padding: "9px 16px",
-            borderRadius: 999,
-            background: "rgba(10,18,35,0.85)",
-            color: "#e2e8f0",
-            fontSize: 12,
-            fontWeight: 600,
+            px: 2.5,
+            py: 1.25,
+            borderRadius: 99,
+            bgcolor: "rgba(15, 23, 42, 0.85)",
+            border: "1px solid rgba(255, 255, 255, 0.12)",
+            backdropFilter: "blur(12px)",
+            boxShadow: "0 12px 32px rgba(0, 0, 0, 0.4)",
+            display: "flex",
+            alignItems: "center",
+            gap: 1.5,
           }}
         >
-          Loading model…
-        </div>
+          <CircularProgress size={16} sx={{ color: "#38bdf8" }} />
+          <Typography variant="body2" sx={{ fontSize: 13, fontWeight: 600, color: "#f8fafc" }}>
+            Loading model…
+          </Typography>
+        </Paper>
       )}
 
+      {/* ── CENTER: ERROR OVERLAY ── */}
       {error && (
-        <div
-          style={{
+        <Box
+          sx={{
             position: "absolute",
             inset: 0,
             zIndex: 55,
             display: "flex",
-            flexDirection: "column",
-            gap: 12,
             alignItems: "center",
             justifyContent: "center",
-            color: "white",
-            fontFamily: "sans-serif",
-            textAlign: "center",
-            padding: 24,
+            p: 3,
+            bgcolor: "rgba(9, 13, 22, 0.92)",
           }}
         >
-          <div>{error}</div>
-        </div>
+          <Stack spacing={2} sx={{ alignItems: "center", maxWidth: 360 }}>
+            <Alert severity="error" variant="filled" sx={{ borderRadius: 2.5, fontWeight: 600 }}>
+              {error}
+            </Alert>
+            <Button
+              variant="contained"
+              size="small"
+              onClick={onBack}
+              sx={{ borderRadius: 2, textTransform: "none", fontWeight: 700 }}
+            >
+              Return to Map
+            </Button>
+          </Stack>
+        </Box>
       )}
 
+      {/* ── HOTSPOT EDITOR SIDE PANEL ── */}
       {editMode && (
         <HotspotEditorPanel
           hotspots={hotspots}
@@ -346,7 +351,8 @@ export default function ModelViewer({
         />
       )}
 
-      <div ref={mountRef} style={{ width: "100%", height: "100%" }} />
-    </div>
+      {/* ── THREE.JS CANVAS CONTAINER ── */}
+      <Box ref={mountRef} sx={{ width: "100%", height: "100%" }} />
+    </Box>
   );
 }
