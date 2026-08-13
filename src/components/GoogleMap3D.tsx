@@ -106,7 +106,7 @@ export default function GoogleMap3D() {
   const currentModelRef = useRef<LoadedModel | null>(null);
   const activeModelInstanceIdRef = useRef<string>(DEFAULT_MODEL_INSTANCE_ID);
   const modelConfigsRef = useRef<Map<string, ModelConfig>>(createInitialModelConfigMap());
-  const clockRef = useRef(new THREE.Clock());
+  const clockRef = useRef(new THREE.Timer());
 
   const anchorRef = useRef<{ lat: number; lng: number; altitude: number } | null>(DEFAULT_ANCHOR);
   const placementListenerRef = useRef<google.maps.MapsEventListener | null>(null);
@@ -226,7 +226,8 @@ export default function GoogleMap3D() {
       const renderer = new GoogleMapsThreeRenderer();
       renderer.setAnchor(DEFAULT_ANCHOR);
       renderer.setOnDraw(() => {
-        const t = clockRef.current.getElapsedTime();
+        clockRef.current.update();
+        const t = clockRef.current.getElapsed();
         hotspotManager.update(t);
       });
       renderer.attachToMap(map);
@@ -571,8 +572,9 @@ selectedModelIdsRef.current = defaultSelection;
 
       const handle = hotspotManagerRef.current.createHotspot(newHotspot);
       hotspotManagerRef.current.attachHotspot(target.pivot, handle);
+      clockRef.current.update();
       hotspotManagerRef.current.update(
-        clockRef.current.getElapsedTime()
+        clockRef.current.getElapsed()
       );
 
       createdHotspotsRef.current = [...createdHotspotsRef.current, newHotspot];
