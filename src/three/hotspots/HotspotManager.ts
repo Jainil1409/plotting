@@ -262,42 +262,17 @@ export class HotspotManager {
 
       hotspot.core.scale.setScalar(1 + Math.sin(time * 3) * 0.12);
 
-      const parent = hotspot.group.parent;
-      if (!parent) return;
+      // Keep the hotspot anchored to the model surface. The group is a
+      // child of the model pivot, so its local position stays fixed at the
+      // original surface point and it automatically rotates together with
+      // the mesh when the model heading is changed via the orientation
+      // controls. We deliberately do NOT counter-rotate here.
+      hotspot.group.position.copy(hotspot.originalPosition);
+      hotspot.group.quaternion.identity();
 
-      // Force the parent's world matrix current BEFORE reading it below.
-      // getWorldQuaternion() reads parent.matrixWorld, which is only
-      // correct if updateMatrixWorld() already ran on the parent chain
-      // this frame. If this update() runs before the map's own
-      // heading/tilt transform is finalized for the frame, this was
-      // reading LAST frame's rotation — counter-rotating a razor-thin
-      // flat disc against a one-frame-stale parent orientation is
-      // exactly what produces the crescent/pac-man clipping in the
-      // screenshot: a paper-thin plane is extremely sensitive to even
-      // small orientation lag when viewed near edge-on.
-      // updateWorldMatrix(true, false): walk up (update ancestors),
-      // don't walk down (don't touch children — we do that ourselves
-      // right after).
-      parent.updateWorldMatrix(true, false);
-
-      const parentWorldQuat = new THREE.Quaternion();
-      parent.getWorldQuaternion(parentWorldQuat);
-
-      // Counter-rotate the local position around the parent's origin.
-      // The original local position was defined in the model's un-rotated
-      // frame; applying the inverse parent rotation brings it back to the
-      // world frame the hotspot was originally placed in.
-      hotspot.group.position
-        .copy(hotspot.originalPosition)
-        .applyQuaternion(parentWorldQuat.clone().invert());
-
-      // Counter-rotate so hotspot stays upright regardless of parent rotation
-      hotspot.group.quaternion.copy(parentWorldQuat.clone().invert());
-
-      // The group's own matrixWorld also needs to be refreshed now that
-      // we've changed its local position/quaternion directly, since
-      // pickHotspotAt()/pickHotspotByScreenDistance() read
-      // group.getWorldPosition() and may run before the renderer's next
+      // Keep the group's matrixWorld current so pickHotspotAt() /
+      // pickHotspotByScreenDistance(), which read getWorldPosition(),
+      // see the correct rotated position even before the renderer's next
       // automatic updateMatrixWorld() pass.
       hotspot.group.updateMatrixWorld(true);
     });
