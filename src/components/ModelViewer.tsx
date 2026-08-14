@@ -9,6 +9,7 @@ import { CameraController } from "../three/CameraController";
 import { HotspotManager } from "../three/HotspotManager";
 
 import HotspotEditorPanel from "./HotspotEditorPanel";
+import HotspotNavBar from "./Hotspotnavbar";
 
 import { HotspotConfig } from "../types/hotspot";
 import { getViewerHotspotsForModel } from "../data/viewerHotspots";
@@ -48,6 +49,15 @@ export default function ModelViewer({
   const [editMode, setEditMode] = useState(false);
   const [hotspots, setHotspots] = useState<HotspotConfig[]>(resolvedHotspots);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Which hotspot the bottom nav bar currently shows/points at. Separate
+  // from selectedId (that's the editor panel's selection) — this one
+  // matters in normal viewing mode. Defaults to the same hotspot the
+  // camera opens on (resolvedHotspots[0], matching the initial
+  // cameraController.setCameraPreset(...) call below).
+  const [viewingHotspotId, setViewingHotspotId] = useState<string | null>(
+    resolvedHotspots[0]?.id ?? null
+  );
 
   const editModeRef = useRef(false);
   const selectedIdRef = useRef<string | null>(null);
@@ -128,6 +138,9 @@ export default function ModelViewer({
       if (result.type === "navigate") {
         if (result.hotspot) {
           cameraController.goToHotspot(result.hotspot);
+          // Keep the nav bar in sync with whatever the user just clicked
+          // directly in the 3D scene, not just arrow-key navigation.
+          setViewingHotspotId(result.hotspot.id);
         }
         event.stopImmediatePropagation();
         return;
@@ -203,10 +216,27 @@ export default function ModelViewer({
     setHotspots(hotspotManagerRef.current?.getHotspots() ?? []);
     setSelectedId(null);
     hotspotManagerRef.current?.clearSelection();
+    // If the hotspot the nav bar was pointing at just got deleted, clear
+    // it — HotspotNavBar falls back to the first hotspot on its own when
+    // currentId doesn't match anything, so this isn't strictly required,
+    // but it avoids briefly holding a stale id.
+    setViewingHotspotId((prev) => (prev === id ? null : prev));
   };
 
   const exportJSON = () => {
     hotspotManagerRef.current?.exportJSON(modelUrl.split("/").pop() ?? "model.glb");
+  };
+
+  // Same camera-transition call the 3D-scene click path already uses
+  // (cameraController.goToHotspot), just triggered from the nav bar's
+  // arrows instead of a raycast hit.
+  const handleNavigate = (id: string) => {
+    const hotspot = hotspotManagerRef.current?.getHotspots().find((h) => h.id === id);
+    if (!hotspot || !cameraControllerRef.current) return;
+
+    cameraControllerRef.current.cancelTransition();
+    cameraControllerRef.current.goToHotspot(hotspot);
+    setViewingHotspotId(id);
   };
 
   return (
@@ -348,6 +378,15 @@ export default function ModelViewer({
           onDelete={deleteHotspot}
           onExport={exportJSON}
           onClose={exitEditMode}
+        />
+      )}
+
+      {/* ── BOTTOM NAV BAR: prev/next through hotspots (view mode only) ── */}
+      {!loading && !error && !editMode && hotspots.length > 0 && (
+        <HotspotNavBar
+          hotspots={hotspots}
+          currentId={viewingHotspotId}
+          onNavigate={handleNavigate}
         />
       )}
 
