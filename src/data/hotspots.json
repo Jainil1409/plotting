@@ -3,7 +3,7 @@
   "hotspots": [
     {
       "id": "hotspot-1786341743501",
-      "label": "New Hotspot 1",
+      "label": "Living Room",
       "position": {
         "x": -5.392106384828472,
         "y": 0.3944730106100103,
@@ -22,7 +22,7 @@
     },
     {
       "id": "hotspot-1786341794775",
-      "label": "New Hotspot 2",
+      "label": "Dining Area",
       "position": {
         "x": -2.3800279796133963,
         "y": 0.754345715045929,
@@ -41,7 +41,7 @@
     },
     {
       "id": "hotspot-1786341845174",
-      "label": "New Hotspot 3",
+      "label": "Bedroom1",
       "position": {
         "x": -1.655448188775882,
         "y": 0.5243509457205998,
@@ -60,7 +60,7 @@
     },
     {
       "id": "hotspot-1786341912364",
-      "label": "New Hotspot 4",
+      "label": "Bathroom",
       "position": {
         "x": -5.5514296855365055,
         "y": 2.6289108223664925e-8,
@@ -79,7 +79,7 @@
     },
     {
       "id": "hotspot-1786424607622",
-      "label": "New Hotspot 5",
+      "label": "Bedroom2",
       "position": {
         "x": -1.9400819899024406,
         "y": 0.30119650274288445,
@@ -98,7 +98,7 @@
     },
     {
       "id": "hotspot-1786438024180",
-      "label": "New Hotspot 6",
+      "label": "lobby1",
       "position": {
         "x": -4.2524031726650735,
         "y": 2.220446049250313e-16,
@@ -117,7 +117,7 @@
     },
     {
       "id": "hotspot-1786438075395",
-      "label": "New Hotspot 7",
+      "label": "lobby2",
       "position": {
         "x": -4.3203217330909505,
         "y": 0,
